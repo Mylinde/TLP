@@ -61,49 +61,57 @@ read_cpu_pct() {
 }
 
 get_lag_score() {
-    # Calculate lag indicator from CPU utilization over 1 second
+    # Calculate lag indicator using snapshot caching in temporary file
     # Returns a "lag score" 0-100 where:
     #   0-35:  Low lag (idle/light load) → power-saver profile
     #  35-75:  Medium lag (normal work) → balanced profile
     #  75-100: High lag (heavy load) → performance profile
     #
-    # Reliable across all systems: uses CPU% as primary metric
-    # Fast: single 1-second snapshot measurement
+    # OPTIMIZATION: Uses file-based snapshot cache - 0% measurement overhead!
+    # Reads current /proc/stat and compares with cached previous snapshot
     
-    # MAIN METRIC: CPU Utilization over 1 second (most reliable cross-platform)
-    # This avoids locale-dependent decimal parsing from load average
+    local cache_file="/run/tlp/lag_snapshot"
+    mkdir -p /run/tlp 2>/dev/null
     
-    local num_cpus=$(nproc 2>/dev/null || echo 4)
-    
-    # Read initial CPU state
+    # Read CURRENT snapshot (instantaneous, no sleep!)
     set -- $(head -1 /proc/stat)
     shift  # skip "cpu" label
-    local cpu1=0 idle1=$4
-    for val in "$@"; do cpu1=$((cpu1 + val)); done
     
-    sleep 1
+    local cpu_total=0 current_idle=$4 current_iowait=$5
+    for val in "$@"; do cpu_total=$((cpu_total + val)); done
     
-    # Read final CPU state
-    set -- $(head -1 /proc/stat)
-    shift  # skip "cpu" label
-    local cpu2=0 idle2=$4
-    for val in "$@"; do cpu2=$((cpu2 + val)); done
+    # Read CACHED previous snapshot (or create if missing)
+    if [ -f "$cache_file" ]; then
+        read last_cpu_time last_idle last_iowait < "$cache_file" 2>/dev/null
+    fi
+    [ -z "$last_cpu_time" ] && last_cpu_time=0
+    [ -z "$last_idle" ] && last_idle=0
+    [ -z "$last_iowait" ] && last_iowait=0
     
-    # Calculate CPU usage percentage
-    local cpu_pct=0
-    local cpu_delta=$((cpu2 - cpu1))
+    # Save current snapshot for next call
+    echo "$cpu_total $current_idle $current_iowait" > "$cache_file" 2>/dev/null
     
-    if [ "$cpu_delta" -gt 0 ]; then
-        local busy_delta=$((cpu_delta - (idle2 - idle1)))
-        cpu_pct=$((busy_delta * 100 / cpu_delta))
+    # Calculate deltas since last snapshot
+    local cpu_delta=$((cpu_total - last_cpu_time))
+    local idle_delta=$((current_idle - last_idle))
+    local iowait_delta=$((current_iowait - last_iowait))
+    
+    # Handle edge cases (first run or negative deltas from overflow)
+    if [ "$cpu_delta" -le 0 ]; then
+        echo 0
+        return
     fi
     
-    # Convert CPU% to lag_score (0-100)
-    # This mapping is stable across all systems:
-    # 0-40% CPU → 0-20 lag points (idle/light)
-    # 40-70% CPU → 20-60 lag points (normal)
-    # 70-95% CPU → 60-95 lag points (busy)
-    # 95%+ CPU → 95-100 lag points (saturated)
+    # Calculate CPU utilization percentage
+    local busy_delta=$((cpu_delta - idle_delta))
+    local cpu_pct=$((busy_delta * 100 / cpu_delta))
+    
+    # Calculate I/O-Wait percentage (separate metric for blocking)
+    local iowait_pct=$((iowait_delta * 100 / cpu_delta))
+    
+    # Convert metrics to lag_score (0-100)
+    # Base: CPU pct mapping
+    # Bonus: I/O-Wait contribution (indicates blocking, responsive lag)
     
     local lag_score=0
     
@@ -117,19 +125,24 @@ get_lag_score() {
         lag_score=$((95 + (cpu_pct - 95)))  # 95-100 points
     fi
     
-    # OPTIONAL: Load Average supplement
-    # Only add bonus if load significantly exceeds CPU count (processes definitely waiting)
+    # ADD I/O-Wait contribution (indicates blocking, not just computation)
+    # I/O-Wait > 10% = significant blocking
+    # I/O-Wait > 30% = severe blocking (responsive lag!)
+    if [ "$iowait_pct" -gt 10 ]; then
+        iowait_contribution=$((iowait_pct / 2))  # 5-15% I/O = 2.5-7.5 bonus points
+        lag_score=$((lag_score + iowait_contribution))
+    fi
+    
+    # OPTIONAL: Load Average supplement (detect process queueing)
+    local num_cpus=$(nproc 2>/dev/null || echo 4)
     if [ "$lag_score" -gt 50 ] && [ -f /proc/loadavg ]; then
         read load_1min load_5min load_rest < /proc/loadavg 2>/dev/null
         if [ -n "$load_1min" ]; then
-            # Extract integer part of load average safely
             load_int="${load_1min%.*}"
             [ -z "$load_int" ] && load_int=0
             
-            # Only count significant excess (more processes than CPUs)
             excess_load=$((load_int - num_cpus))
             if [ "$excess_load" -gt 0 ]; then
-                # Add points proportional to excess (cap at 15 bonus points)
                 load_bonus=$((excess_load * 3))
                 [ "$load_bonus" -gt 15 ] && load_bonus=15
                 lag_score=$((lag_score + load_bonus))
