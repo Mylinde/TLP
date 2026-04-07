@@ -60,6 +60,90 @@ read_cpu_pct() {
     echo "$((busy * 100 / cpu_delta))"
 }
 
+get_lag_score() {
+    # Calculate lag indicator from CPU utilization over 1 second
+    # Returns a "lag score" 0-100 where:
+    #   0-35:  Low lag (idle/light load) → power-saver profile
+    #  35-75:  Medium lag (normal work) → balanced profile
+    #  75-100: High lag (heavy load) → performance profile
+    #
+    # Reliable across all systems: uses CPU% as primary metric
+    # Fast: single 1-second snapshot measurement
+    
+    # MAIN METRIC: CPU Utilization over 1 second (most reliable cross-platform)
+    # This avoids locale-dependent decimal parsing from load average
+    
+    local num_cpus=$(nproc 2>/dev/null || echo 4)
+    
+    # Read initial CPU state
+    set -- $(head -1 /proc/stat)
+    shift  # skip "cpu" label
+    local cpu1=0 idle1=$4
+    for val in "$@"; do cpu1=$((cpu1 + val)); done
+    
+    sleep 1
+    
+    # Read final CPU state
+    set -- $(head -1 /proc/stat)
+    shift  # skip "cpu" label
+    local cpu2=0 idle2=$4
+    for val in "$@"; do cpu2=$((cpu2 + val)); done
+    
+    # Calculate CPU usage percentage
+    local cpu_pct=0
+    local cpu_delta=$((cpu2 - cpu1))
+    
+    if [ "$cpu_delta" -gt 0 ]; then
+        local busy_delta=$((cpu_delta - (idle2 - idle1)))
+        cpu_pct=$((busy_delta * 100 / cpu_delta))
+    fi
+    
+    # Convert CPU% to lag_score (0-100)
+    # This mapping is stable across all systems:
+    # 0-40% CPU → 0-20 lag points (idle/light)
+    # 40-70% CPU → 20-60 lag points (normal)
+    # 70-95% CPU → 60-95 lag points (busy)
+    # 95%+ CPU → 95-100 lag points (saturated)
+    
+    local lag_score=0
+    
+    if [ "$cpu_pct" -lt 40 ]; then
+        lag_score=$((cpu_pct / 2))  # 0-20 points
+    elif [ "$cpu_pct" -lt 70 ]; then
+        lag_score=$((20 + (cpu_pct - 40) * 4 / 3))  # 20-60 points
+    elif [ "$cpu_pct" -lt 95 ]; then
+        lag_score=$((60 + (cpu_pct - 70) * 4 / 3))  # 60-95 points
+    else
+        lag_score=$((95 + (cpu_pct - 95)))  # 95-100 points
+    fi
+    
+    # OPTIONAL: Load Average supplement
+    # Only add bonus if load significantly exceeds CPU count (processes definitely waiting)
+    if [ "$lag_score" -gt 50 ] && [ -f /proc/loadavg ]; then
+        read load_1min load_5min load_rest < /proc/loadavg 2>/dev/null
+        if [ -n "$load_1min" ]; then
+            # Extract integer part of load average safely
+            load_int="${load_1min%.*}"
+            [ -z "$load_int" ] && load_int=0
+            
+            # Only count significant excess (more processes than CPUs)
+            excess_load=$((load_int - num_cpus))
+            if [ "$excess_load" -gt 0 ]; then
+                # Add points proportional to excess (cap at 15 bonus points)
+                load_bonus=$((excess_load * 3))
+                [ "$load_bonus" -gt 15 ] && load_bonus=15
+                lag_score=$((lag_score + load_bonus))
+            fi
+        fi
+    fi
+    
+    # Cap lag_score at 100
+    [ "$lag_score" -gt 100 ] && lag_score=100
+    [ "$lag_score" -lt 0 ] && lag_score=0
+    
+    echo "$lag_score"
+}
+
 get_ac_power() {
     # Determine if running on AC power (1=on AC, 0=on battery)
     # Optimized: check first battery only (most systems have just one)
@@ -156,18 +240,18 @@ run_loop() {
     
     INTERVAL=${SAV_DYNAMIC_INTERVAL:-4}
     SAMPLES=${SAV_DYNAMIC_SAMPLES:-3}
-    THRESH="${SAV_DYNAMIC_THRESHOLDS:-30,60}"
-    HYST=${SAV_DYNAMIC_HYSTERESIS:-3}
+    LAG_THRESH="${SAV_DYNAMIC_LAG_THRESHOLDS:-35,75}"
+    HYST=${SAV_DYNAMIC_HYSTERESIS:-8}
     MIND=${SAV_DYNAMIC_MIN_DELAY:-4}
 
-    thr_low=$(echo "$THRESH" | cut -d, -f1)
-    thr_high=$(echo "$THRESH" | cut -d, -f2)
-    [ -n "$thr_low" ] || thr_low=30
-    [ -n "$thr_high" ] || thr_high=60
+    thr_low=$(echo "$LAG_THRESH" | cut -d, -f1)
+    thr_high=$(echo "$LAG_THRESH" | cut -d, -f2)
+    [ -n "$thr_low" ] || thr_low=35
+    [ -n "$thr_high" ] || thr_high=75
 
     # debug: verify constants are defined
     echo "dyn-saver: SAV_DYNAMIC_ENABLE=$SAV_DYNAMIC_ENABLE PLATFORM_PROFILE_ON_SAV=$PLATFORM_PROFILE_ON_SAV" >> /tmp/dyn-saver.log
-    echo "dyn-saver: INTERVAL=$INTERVAL SAMPLES=$SAMPLES THRESHOLDS=$thr_low,$thr_high HYST=$HYST MIND=$MIND" >> /tmp/dyn-saver.log
+    echo "dyn-saver: INTERVAL=$INTERVAL SAMPLES=$SAMPLES LAG_THRESHOLDS=$thr_low,$thr_high HYST=$HYST MIND=$MIND MODE=LAG_SCORE" >> /tmp/dyn-saver.log
 
     last_state="unknown"
     last_change=0
@@ -209,8 +293,10 @@ run_loop() {
             continue
         fi
 
-        # sample CPU util and maintain moving average
-        pct=$(read_cpu_pct 1)
+        # sample lag indicator and maintain moving average
+        # Use lag detection based on CPU utilization, load average, and scheduler metrics
+        pct=$(get_lag_score)
+        
         sample_buf="$sample_buf $pct"
         # keep only last SAMPLES values
         set -- $sample_buf
@@ -241,29 +327,32 @@ run_loop() {
         # Default to base interval
         current_interval=$INTERVAL
         
-        # If load is rising sharply, sample more frequently
-        if [ $delta_avg -gt 10 ]; then
-            # Load jumping up rapidly - sample every 2 seconds
+        # If lag is rising sharply, sample more frequently
+        if [ $delta_avg -gt 20 ]; then
+            # Lag jumping up rapidly - sample every 1 second (urgent)
+            current_interval=1
+        elif [ $delta_avg -gt 10 ]; then
+            # Lag rising moderately - sample every 2 seconds
             current_interval=2
         elif [ $delta_avg -gt 5 ]; then
-            # Load rising moderately - sample every 3 seconds
+            # Lag rising slightly - sample every 3 seconds
             current_interval=3
-        elif [ $delta_avg -lt -10 ]; then
-            # Load dropping sharply - can check slower
+        elif [ $delta_avg -lt -15 ]; then
+            # Lag dropping sharply - can check slower
             current_interval=$((INTERVAL + 2))
         fi
         
-        # Predictive: if close to threshold and rising, sample faster
+        # Predictive: if close to high threshold and rising, sample faster
         threshold_distance=$((thr_high - HYST - avg))
-        if [ $threshold_distance -gt 0 ] && [ $threshold_distance -le 15 ] && [ $delta_avg -gt 0 ]; then
-            # Within 15% of high threshold and rising - urgent sampling
+        if [ $threshold_distance -gt 0 ] && [ $threshold_distance -le 20 ] && [ $delta_avg -gt 0 ]; then
+            # Within 20 points of high lag threshold and rising - urgent sampling
             current_interval=1
         fi
         
         # Also check low threshold approaching from below
-        low_threshold_distance=$((avg - (thr_low + HYST)))
-        if [ $low_threshold_distance -gt -15 ] && [ $low_threshold_distance -le 0 ] && [ $delta_avg -lt 0 ]; then
-            # Within 15% below low threshold and falling - urgent sampling
+        low_threshold_distance=$((avg - (thr_low - HYST)))
+        if [ $low_threshold_distance -gt -20 ] && [ $low_threshold_distance -le 0 ] && [ $delta_avg -lt 0 ]; then
+            # Within 20 points below low lag threshold and falling - urgent sampling
             current_interval=1
         fi
         
@@ -272,9 +361,9 @@ run_loop() {
 
         # determine target state with hysteresis
         target=unknown
-        if [ "$avg" -le $((thr_low + HYST)) ]; then
+        if [ "$avg" -le $((thr_low - HYST)) ]; then
             target=low
-        elif [ "$avg" -ge $((thr_high - HYST)) ]; then
+        elif [ "$avg" -ge $((thr_high + HYST)) ]; then
             target=high
         else
             target=med

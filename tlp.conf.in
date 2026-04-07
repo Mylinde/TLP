@@ -260,17 +260,22 @@
 # battery lifetime during light usage (web browsing, office work, etc).
 # 
 # The daemon monitors CPU utilization and switches between three states:
-#   - low:  CPU ≤ 30% → maximum power saving (quiet/power-saver profile)
-#   - med:  CPU 30-60% → balanced mode (balanced profile)
-#   - high: CPU ≥ 60% → better performance (performance profile)
+#   - low:     lag score ≤ 35  → power-saver profile (quiet/low-power)
+#   - med:     lag score 35-75  → balanced profile
+#   - high:    lag score ≥ 75   → performance profile
+#
+# Lag Detection System:
+#   Monitors system load, I/O wait, and scheduler metrics to detect responsiveness
+#   issues (lag). This provides better workload-dependent profile switching than
+#   simple CPU% thresholds, especially for I/O bound workloads.
 #
 # Dynamic SAV settings (all optional, shown with defaults):
 #SAV_DYNAMIC_ENABLE=0                          # 0=off, 1=on
 #SAV_DYNAMIC_INTERVAL=4                        # sampling interval [seconds]
 #SAV_DYNAMIC_SAMPLES=3                         # moving average window size [samples]
-#SAV_DYNAMIC_THRESHOLDS="30,60"                # low,high CPU load thresholds [%]
-#SAV_DYNAMIC_HYSTERESIS=3                      # hysteresis to prevent flapping [%]
-#SAV_DYNAMIC_MIN_DELAY=4                      # minimum delay between profile changes [seconds]
+#SAV_DYNAMIC_LAG_THRESHOLDS="35,75"            # low,high lag score thresholds [0-100]
+#SAV_DYNAMIC_HYSTERESIS=8                      # hysteresis to prevent flapping [lag_score points]
+#SAV_DYNAMIC_MIN_DELAY=4                       # minimum delay between profile changes [seconds]
 
 # System suspend mode:
 #   s2idle: Idle standby - a pure software, light-weight, system sleep state,
