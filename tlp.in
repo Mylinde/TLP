@@ -406,6 +406,18 @@ case "$_cmd" in
             [ "$X_TLP_USB_MODE" = "1" ] && set_usb_suspend 0 auto
             set_radio_device_states "$_pp_next"
             save_runconf
+
+            # start or stop dynamic SAV daemon based on profile and power state
+            if [ "${SAV_DYNAMIC_ENABLE}" = "1" ] && [ "$_pp_next" = "$PP_SAV" ] && [ "$_syspwr" = "$PS_BAT" ]; then
+                # Kill any existing daemon first
+                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
+                # Start daemon
+                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" start
+            else
+                # Stop daemon if not in SAV+BAT mode
+                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
+            fi
+
             unlock_tlp
 
             echo_started_profile "$_pp_next"

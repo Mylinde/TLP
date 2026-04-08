@@ -62,10 +62,13 @@ read_cpu_pct() {
 
 get_lag_score() {
     # Calculate lag indicator using snapshot caching in temporary file
-    # Returns a "lag score" 0-100 where:
-    #   0-35:  Low lag (idle/light load) → power-saver profile
-    #  35-75:  Medium lag (normal work) → balanced profile
-    #  75-100: High lag (heavy load) → performance profile
+    # Returns a "lag score" 0-100 where lag score influences SAV profile parameters:
+    #   0-35:  Low lag (idle/light load) → relax PLATFORM_PROFILE, CPU_PERF, PCIE_ASPM
+    #  35-75:  Medium lag (normal work) → moderate PLATFORM_PROFILE, CPU_PERF, PCIE_ASPM
+    #  75-100: High lag (heavy load) → maximize performance within SAV mode
+    #
+    # Note: Daemon only adjusts 3 parameters within the power-saver profile,
+    # does NOT switch to different profile (performance, balanced, etc.)
     #
     # OPTIMIZATION: Uses file-based snapshot cache - 0% measurement overhead!
     # Reads current /proc/stat and compares with cached previous snapshot
@@ -286,8 +289,8 @@ run_loop() {
         fi
         
         if [ "$cached_ac_status" = "1" ]; then
-            sleep "$INTERVAL"
-            continue
+            echo "dyn-saver: switched to AC mode, stopping" >> /tmp/dyn-saver.log
+            exit 0
         fi
 
         # check last applied profile
@@ -298,12 +301,12 @@ run_loop() {
             # Check if current profile matches the configured SAV profile
             # We need to compare the actual profile name, not numeric values
             if [ "$current_profile" != "$PLATFORM_PROFILE_ON_SAV" ] && [ -n "$PLATFORM_PROFILE_ON_SAV" ]; then
-                sleep "$INTERVAL"
-                continue
+                echo "dyn-saver: profile switched to '$current_profile', stopping" >> /tmp/dyn-saver.log
+                exit 0
             fi
         else
-            sleep "$INTERVAL"
-            continue
+            echo "dyn-saver: platform_profile not available, stopping" >> /tmp/dyn-saver.log
+            exit 0
         fi
 
         # sample lag indicator and maintain moving average
@@ -389,38 +392,41 @@ run_loop() {
         fi
 
         if [ $changed -eq 1 ]; then
-            # prepare desired runtime values
+            # Within the power-saver profile, adjust parameters based on workload lag
+            # Note: We are NOT switching profiles, only adjusting PLATFORM_PROFILE_ON_SAV,
+            # CPU_ENERGY_PERF_POLICY_ON_SAV, and PCIE_ASPM_ON_SAV within the SAV context
             case "$target" in
                 low)
-                    desired_platform="$sav_profile"
-                    desired_cpu="power"
-                    desired_pcie="powersupersave"
+                    sav_platform_setting="$sav_profile"
+                    sav_cpu_setting="power"
+                    sav_pcie_setting="powersupersave"
                     ;;
                 med)
-                    desired_platform="balanced"
-                    desired_cpu="balance_power"
-                    desired_pcie="powersave"
+                    sav_platform_setting="balanced"
+                    sav_cpu_setting="balance_power"
+                    sav_pcie_setting="powersave"
                     ;;
                 high)
-                    desired_platform="performance"
-                    desired_cpu="balance_performance"
-                    desired_pcie="default"
+                    sav_platform_setting="performance"
+                    sav_cpu_setting="balance_performance"
+                    sav_pcie_setting="default"
                     ;;
             esac
 
-            # apply by temporarily setting *_ON_SAV vars and invoking setters
-            CPU_ENERGY_PERF_POLICY_ON_SAV="$desired_cpu"
-            PCIE_ASPM_ON_SAV="$desired_pcie"
-            PLATFORM_PROFILE_ON_SAV="$desired_platform"
+            # Apply by temporarily setting *_ON_SAV vars and invoking setters
+            # These setters will use our temporary values within the power-saver mode
+            CPU_ENERGY_PERF_POLICY_ON_SAV="$sav_cpu_setting"
+            PCIE_ASPM_ON_SAV="$sav_pcie_setting"
+            PLATFORM_PROFILE_ON_SAV="$sav_platform_setting"
 
-            # call setters (they will check ppd and availability)
+            # Call setters (they will check ppd and availability)
             set_cpu_perf_policy "$_pp_sav"
             set_pcie_aspm "$_pp_sav"
             set_platform_profile "$_pp_sav"
 
             last_state="$target"
             last_change=$now
-            echo "dyn-saver: state=$target avg=$avg applied: $desired_platform,$desired_cpu,$desired_pcie" >> /tmp/dyn-saver.log
+            echo "dyn-saver: state=$target avg=$avg applied: $sav_platform_setting,$sav_cpu_setting,$sav_pcie_setting" >> /tmp/dyn-saver.log
         fi
 
         sleep "$current_interval"
