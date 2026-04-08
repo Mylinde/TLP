@@ -5,6 +5,9 @@
 # Adjusts PLATFORM_PROFILE_ON_SAV, CPU_ENERGY_PERF_POLICY_ON_SAV and
 # PCIE_ASPM_ON_SAV workload-dependently (low/med/high) using existing
 # setter functions. Designed for install-and-forget usage (disabled by default).
+#
+# Copyright (c) 2026 Mario Herrmann <mameogdoay at posteo.de> and others.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # Requires: tlp-func-base, tlp-func-cpu, tlp-func-pm
 
@@ -444,29 +447,19 @@ if [ "$script_name" = "35-tlp-func-dyn-saver" ] || [ "$script_name" = "tlp-func-
     case "$1" in
         start)
             RUNDIR=/run/tlp
-            if is_running; then
-                echo "dyn-saver already running"
-                exit 0
-            fi
-            rm -f /tmp/dyn-saver.log
-            run_loop &
-            create_pidfile $!
-            echo "dyn-saver started (PID=$!)"
+            # Start via systemd unit - leverages Restart=on-failure mechanism
+            systemctl start tlp-dyn-saver 2>/dev/null
             ;;
         stop)
             RUNDIR=/run/tlp
-            if ! is_running; then
-                echo "dyn-saver not running"
-                exit 0
-            fi
-            pid=$(cat "$RUNDIR/tlp-dyn-saver.pid")
-            kill "$pid" 2>/dev/null || true
-            remove_pidfile
-            echo "dyn-saver stopped"
+            # Stop via systemd unit
+            systemctl stop tlp-dyn-saver 2>/dev/null
             ;;
         status)
             RUNDIR=/run/tlp
-            if is_running; then
+            # Check status via systemd
+            systemctl is-active tlp-dyn-saver >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
                 echo "dyn-saver running"
                 exit 0
             else

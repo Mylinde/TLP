@@ -286,11 +286,6 @@ case "$_cmd" in
 
                 # apply radio states
                 set_radio_device_states start
-
-                # start dynamic SAV daemon if enabled
-                if [ "${SAV_DYNAMIC_ENABLE}" = "1" ]; then
-                    "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" start
-                fi
                 ;;
 
             restart|force-reload)
@@ -307,12 +302,6 @@ case "$_cmd" in
                 printf "Setting battery charge thresholds..."
                 init_batteries_thresholds
                 echo "done."
-
-                # restart dynamic SAV daemon if enabled
-                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
-                if [ "${SAV_DYNAMIC_ENABLE}" = "1" ]; then
-                    "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" start
-                fi
                 ;;
 
             stop)
@@ -329,9 +318,6 @@ case "$_cmd" in
                     poweroff_drivebay "$_pp_next" 0
                     echo "done."
                 fi
-
-                # stop dynamic SAV daemon
-                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
 
                 # apply radio states
                 set_radio_device_states stop
@@ -415,6 +401,7 @@ case "$_cmd" in
                 "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" start
             else
                 # Stop daemon if not in SAV+BAT mode
+                systemctl stop tlp-dyn-saver 2>/dev/null
                 "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
             fi
 

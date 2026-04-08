@@ -91,6 +91,7 @@ INFILES = \
 	tlp-func-base \
 	tlp-pd \
 	tlp-pd.service \
+	tlp-dyn-saver.service \
 	tlp-rdw-nm \
 	tlp-rdw.rules \
 	tlp-rdw-udev \
@@ -205,6 +206,7 @@ ifneq ($(TLP_NO_INIT),1)
 endif
 ifneq ($(TLP_WITH_SYSTEMD),0)
 	install -D -m 644 tlp.service $(_SYSD)/tlp.service
+	install -D -m 644 tlp-dyn-saver.service $(_SYSD)/tlp-dyn-saver.service
 	install -D -m 755 tlp-sleep $(_SDSL)/tlp
 endif
 ifneq ($(TLP_WITH_ELOGIND),0)
@@ -316,6 +318,7 @@ uninstall-tlp:
 	rm $(_ULIB)/rules.d/85-tlp.rules
 	rm -f $(_SYSV)/tlp
 	rm -f $(_SYSD)/tlp.service
+	rm -f $(_SYSD)/tlp-dyn-saver.service
 	rm -f $(_SDSL)/tlp-sleep
 	rm -f $(_ELOD)/49-tlp-sleep
 	rm -f $(_SHCPL)/tlp
