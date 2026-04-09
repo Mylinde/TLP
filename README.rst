@@ -17,6 +17,15 @@ as the backend it **replaces power-profiles-daemon** by implementing the same
 D-Bus API that major Linux desktop environments like GNOME, KDE and Cinnamon
 already use for switching power profiles.
 
+**Dynamic SAV Daemon** *(Difference to upstream TLP)*
+    This fork includes an additional optional **tlp-dyn-saver** daemon that
+    dynamically adjusts power-saver profile parameters based on system workload.
+    It monitors CPU utilization and automatically switches between three power
+    levels (low/medium/high) for PLATFORM_PROFILE, CPU_ENERGY_PERF_POLICY, and
+    PCIE_ASPM settings. This enables automatic optimization without manual
+    intervention - maximizing battery life during idle periods while maintaining
+    responsiveness when needed. The daemon is disabled by default.
+
 In addition TLP can enable or disable Bluetooth, NFC, Wi-Fi and WWAN radio
 devices on boot and when connecting/removing the LAN cable.
 
