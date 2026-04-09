@@ -187,7 +187,7 @@ get_ac_power() {
 }
 
 usage() {
-    echo "Usage: $0 {start|stop|status|run}" 1>&2
+    cecho "Usage: $0 {start|stop|status|run}"
 }
 
 # ============================================================================
@@ -198,7 +198,7 @@ run_loop() {
     # source common functions
     # tlp-func-base must be sourced first as it defines functions and constants
     for lib in @TLP_TLIB@/tlp-func-base @TLP_TLIB@/func.d/35-tlp-func-batt @TLP_TLIB@/func.d/10-tlp-func-cpu @TLP_TLIB@/func.d/05-tlp-func-pm; do
-        . "$lib" || { echo "Failed to source $lib"; exit 1; }
+        . "$lib" || { cecho "Failed to source $lib"; exit 1; }
     done
 
     # Load configuration directly (for standalone execution outside of tlp's context)
@@ -226,7 +226,7 @@ run_loop() {
 
     # Check if dynamic saver is enabled
     SAV_DYNAMIC_ENABLE=${SAV_DYNAMIC_ENABLE:-0}
-    [ "$SAV_DYNAMIC_ENABLE" = "1" ] || { echo "dyn-saver: disabled"; exit 0; }
+    [ "$SAV_DYNAMIC_ENABLE" = "1" ] || { echo_debug "dyn-saver" "disabled"; exit 0; }
     
     # Auto-detect or validate SAV profile
     # Check if the configured or auto-detected profile is supported
@@ -244,7 +244,7 @@ run_loop() {
             for candidate in quiet low-power cool; do
                 if grep -q "$candidate" /sys/firmware/acpi/platform_profile_choices 2>/dev/null; then
                     PLATFORM_PROFILE_ON_SAV="$candidate"
-                    echo "dyn-saver: auto-detected SAV profile: $PLATFORM_PROFILE_ON_SAV" >> /tmp/dyn-saver.log
+                    echo_debug "dyn-saver" "auto-detected SAV profile: $PLATFORM_PROFILE_ON_SAV"
                     break
                 fi
             done
@@ -253,7 +253,7 @@ run_loop() {
     
     # Require a supported profile to proceed
     if [ -z "$PLATFORM_PROFILE_ON_SAV" ]; then
-        echo "dyn-saver: no supported platform profile found (quiet, low-power, or cool)"
+        cecho "dyn-saver: no supported platform profile found (quiet, low-power, or cool)"
         exit 1
     fi
     
@@ -269,8 +269,8 @@ run_loop() {
     [ -n "$thr_high" ] || thr_high=75
 
     # debug: verify constants are defined
-    echo "dyn-saver: SAV_DYNAMIC_ENABLE=$SAV_DYNAMIC_ENABLE PLATFORM_PROFILE_ON_SAV=$PLATFORM_PROFILE_ON_SAV" >> /tmp/dyn-saver.log
-    echo "dyn-saver: INTERVAL=$INTERVAL SAMPLES=$SAMPLES LAG_THRESHOLDS=$thr_low,$thr_high HYST=$HYST MIND=$MIND MODE=LAG_SCORE" >> /tmp/dyn-saver.log
+    echo_debug "dyn-saver" "SAV_DYNAMIC_ENABLE=$SAV_DYNAMIC_ENABLE PLATFORM_PROFILE_ON_SAV=$PLATFORM_PROFILE_ON_SAV"
+    echo_debug "dyn-saver" "INTERVAL=$INTERVAL SAMPLES=$SAMPLES LAG_THRESHOLDS=$thr_low,$thr_high HYST=$HYST MIND=$MIND MODE=LAG_SCORE"
 
     last_state="unknown"
     last_change=0
@@ -292,7 +292,7 @@ run_loop() {
         fi
         
         if [ "$cached_ac_status" = "1" ]; then
-            echo "dyn-saver: switched to AC mode, stopping" >> /tmp/dyn-saver.log
+            echo_debug "dyn-saver" "switched to AC mode, stopping"
             exit 0
         fi
 
@@ -304,11 +304,11 @@ run_loop() {
             # Check if current profile matches the configured SAV profile
             # We need to compare the actual profile name, not numeric values
             if [ "$current_profile" != "$PLATFORM_PROFILE_ON_SAV" ] && [ -n "$PLATFORM_PROFILE_ON_SAV" ]; then
-                echo "dyn-saver: profile switched to '$current_profile', stopping" >> /tmp/dyn-saver.log
+                echo_debug "dyn-saver" "profile switched to '$current_profile', stopping"
                 exit 0
             fi
         else
-            echo "dyn-saver: platform_profile not available, stopping" >> /tmp/dyn-saver.log
+            echo_debug "dyn-saver" "platform_profile not available, stopping"
             exit 0
         fi
 
@@ -429,7 +429,7 @@ run_loop() {
 
             last_state="$target"
             last_change=$now
-            echo "dyn-saver: state=$target avg=$avg applied: $sav_platform_setting,$sav_cpu_setting,$sav_pcie_setting" >> /tmp/dyn-saver.log
+            echo_debug "dyn-saver" "state=$target avg=$avg applied: $sav_platform_setting,$sav_cpu_setting,$sav_pcie_setting"
         fi
 
         sleep "$current_interval"
