@@ -7,9 +7,6 @@ please refer to: https://linrunner.de/tlp/developers/packaging.html
     Based on TLP 1.10.0 with Power Saver profile integration
     Features:
     - Automatic power profile switching based on system workload
-    - Battery care and charge threshold management
-    - Power optimization for modern laptops
-    - Full backward compatibility with TLP configuration files
 
 +++ 1.10.0 (Original TLP) --- 20.04.2026 +++
 
