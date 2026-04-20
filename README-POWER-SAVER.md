@@ -1,8 +1,8 @@
-# TLP Power Saver Daemon
+# easyTLP Power Saver Daemon
 
 ## Overview
 
-The TLP Power Saver is a lightweight daemon that automatically switches between the power profiles based on system workload. It monitors CPU and I/O activity to determine the current system load and dynamically selects the appropriate profile:
+The easyTLP Power Saver is a lightweight daemon that automatically switches between the power profiles based on system workload. It monitors CPU and I/O activity to determine the current system load and dynamically selects the appropriate profile:
 
 - **SAV** (power-saver): Aggressive power saving for idle/light workloads
 - **BAL** (balanced): Default balanced mode for normal work
@@ -12,16 +12,16 @@ The daemon runs only on battery power and stops automatically when AC is connect
 
 ## Breaking Changes & Migration from tlp-pd
 
-**TLP Profile Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into TLP core:
+**easyTLP Profile Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into easyTLP core:
 
 ### What Changed
 
 | Aspect | tlp-pd (Legacy) | Profile Saver (New) |
 |--------|---------|---------|
 | **Language** | Python | Shell Script |
-| **Integration** | External D-Bus service | Part of TLP core |
+| **Integration** | External D-Bus service | Part of easyTLP core |
 | **Control Program** | `tlpctl` command-line tool | N/A (use `tlp` directly) |
-| **GUI Integration** | D-Bus/systemd interface | Native TLP profiles |
+| **GUI Integration** | D-Bus/systemd interface | Native easyTLP profiles |
 | **Dependency** | Python 3, GLib | None (pure shell) |
 
 ## Features

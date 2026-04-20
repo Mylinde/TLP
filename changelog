@@ -1,7 +1,17 @@
-This is the user-oriented changelog. For information regarding packaging,
+This is the user-oriented changelog for easyTLP. For information regarding packaging,
 please refer to: https://linrunner.de/tlp/developers/packaging.html
 
 +++ 1.10.0 --- 20.04.2026 +++
+
+  * Initial Release of easyTLP
+    Based on TLP 1.10.0 with Power Saver profile integration
+    Features:
+    - Automatic power profile switching based on system workload
+    - Battery care and charge threshold management
+    - Power optimization for modern laptops
+    - Full backward compatibility with TLP configuration files
+
++++ 1.10.0 (Original TLP) --- 20.04.2026 +++
 
   * Bugfixes since 1.10.0-beta.2
     Disks:

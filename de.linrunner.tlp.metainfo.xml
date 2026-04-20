@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <component>
-  <id>de.linrunner.tlp</id>
+  <id>de.linrunner.easytlp</id>
   <metadata_license>MIT</metadata_license>
-  <name>TLP</name>
+  <name>easyTLP</name>
   <project_license>GPL-2.0-or-later AND GPL-3.0</project_license>
-  <summary>Optimize laptop battery life</summary>
+  <summary>Optimize laptop battery life with automatic power profile switching</summary>
   <url type="homepage">https://linrunner.de/tlp</url>
   <developer id="de.linrunner">
      <name>Thomas Koch</name>
@@ -12,32 +12,34 @@
 
   <description>
     <p>
-        TLP is a feature-rich command-line utility, saving laptop battery power
+        easyTLP is a feature-rich command-line utility, saving laptop battery power
         without the need to delve deeper into technical details.
     </p>
     <p>
-        TLP’s default settings are already optimized for battery life and implement
-        Powertop’s recommendations out of the box. Moreover TLP is highly
-        customizable to fulfil specific user requirements.
+        easyTLP extends TLP with automatic power profile switching based on system workload,
+        providing intelligent power optimization for modern laptops. Default settings are
+        already optimized for battery life and implement Powertop's recommendations out of
+        the box. Moreover easyTLP is highly customizable to fulfil specific user requirements.
     </p>
     <p>
-        Settings are organized into the three customizable TLP profiles performance (AC),
+        Settings are organized into the three customizable easyTLP profiles performance (AC),
         balanced (BAT) and power-saver (SAV), allowing to adjust between savings
-        and performance independently for battery and AC operation.
+        and performance independently for battery and AC operation. The Power Saver daemon
+        automatically switches between these profiles based on system workload.
     </p>
     <p>
 
-        which lets desktop environments show a TLP profile switch.
-        Together with TLP as the backend for applying the customizable profiles,
+        which lets desktop environments show an easyTLP profile switch.
+        Together with easyTLP as the backend for applying the customizable profiles,
         it replaces power-profiles-daemon.
     </p>
     <p>
-        In addition TLP can enable or disable Bluetooth, NFC, Wi-Fi and WWAN
+        In addition easyTLP can enable or disable Bluetooth, NFC, Wi-Fi and WWAN
         devices at boot time, as well as automated switching when a LAN cable is
         connected or removed, or when the laptop is docked or undocked.
     </p>
     <p>
-        For ThinkPads and may other laptop brands it provides a unified way
+        For ThinkPads and many other laptop brands it provides a unified way
         to configure charge thresholds and recalibrate the battery.
     </p>
   </description>
