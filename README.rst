@@ -11,8 +11,7 @@ Settings are organized into three customizable profiles *performance* (AC),
 *balanced* (BAT) and *power-saver* (SAV), allowing to adjust between savings
 and performance independently for battery and AC operation.
 
-
-enables choosing between the three profiles with a mouse click. Together with TLP
+Version 1.9 introduces the (optional) TLP profiles daemon (tlp-pd), which enables choosing between the three profiles with a mouse click. Together with TLP
 as the backend it **replaces power-profiles-daemon** by implementing the same
 D-Bus API that major Linux desktop environments like GNOME, KDE and Cinnamon
 already use for switching power profiles.
@@ -38,6 +37,8 @@ and **tlpctl** have been removed as manual profile switching is no longer
 necessary.
 
 For detailed information about the Power Saver Daemon, see `README-POWER-SAVER.md <README-POWER-SAVER.md>`_.
+
+**tlp-psd** is not part of the upstream TLP project and is only available in this fork. Bug reports and contributions related to **tlp-psd** should be directed to this repository.
 
 Documentation
 -------------
