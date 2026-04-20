@@ -1,5 +1,5 @@
 #!/bin/sh
-# tlp-func-profile-saver - Workload-dependent profile switching (SAV/BAL/PRF)
+# tlp-psd - Workload-dependent profile switching (SAV/BAL/PRF)
 #
 # Automatically switches between SAV, BAL, and PRF profiles based on workload.
 # Uses the same lag detection algorithm and configuration as the dyn-saver.
@@ -246,12 +246,12 @@ set_pm_qos_constraints() {
     if [ "$cpu_count" -gt 0 ]; then
         if [ "$failed" -eq 0 ]; then
             [ "$constraint" = "no_constraint" ] && constraint="-1"
-            echo_debug "profile-saver" "PM QoS constraints: set $constraint µs on $success/$cpu_count CPUs"
+            echo_debug "power-saver" "PM QoS constraints: set $constraint µs on $success/$cpu_count CPUs"
         else
-            echo_debug "profile-saver" "PM QoS constraints: partial failure ($success/$cpu_count CPUs updated, $failed failed)"
+            echo_debug "power-saver" "PM QoS constraints: partial failure ($success/$cpu_count CPUs updated, $failed failed)"
         fi
     else
-        echo_debug "profile-saver" "PM QoS constraints: no writable sysfs files found (need root)"
+        echo_debug "power-saver" "PM QoS constraints: no writable sysfs files found (need root)"
     fi
 }
 
@@ -278,7 +278,7 @@ apply_profile() {
             ;;
     esac
     
-    echo_debug "profile-saver" "Applying profile: $tlp_profile"
+    echo_debug "power-saver" "Applying profile: $tlp_profile"
     
     # Apply TLP profile via tlp command
     @TLP_SBIN@/tlp "$tlp_profile" >/dev/null 2>&1 || true
@@ -355,7 +355,7 @@ run_loop() {
     # Check if profile saver is enabled
     POWER_SAVER_ENABLE=${POWER_SAVER_ENABLE:-0}
     if [ "$POWER_SAVER_ENABLE" != "1" ]; then
-        echo_debug "profile-saver" "disabled (POWER_SAVER_ENABLE=$POWER_SAVER_ENABLE)"
+        echo_debug "power-saver" "disabled (POWER_SAVER_ENABLE=$POWER_SAVER_ENABLE)"
         exit 0
     fi
 
@@ -394,7 +394,7 @@ run_loop() {
     last_adapt_thr_low=0
     last_adapt_thr_high=0
     
-    echo_debug "profile-saver" "Starting profile saver daemon"
+    echo_debug "power-saver" "Starting profile saver daemon"
 
     while [ "$shutdown" = false ]; do
         now=$(date +%s)
@@ -408,7 +408,7 @@ run_loop() {
         
         # Stop daemon on AC power (PS_AC=0)
         if [ "$cached_ac_status" = "0" ]; then
-            echo_debug "profile-saver" "switched to AC mode, stopping"
+            echo_debug "power-saver" "switched to AC mode, stopping"
             exit 0
         fi
 
@@ -422,7 +422,7 @@ run_loop() {
         # This ensures we never under-allocate performance when apps demand it
         if [ "$pm_qos" -ge 0 ]; then
             if [ "$pm_qos" -gt "$pct" ]; then
-                echo_debug "profile-saver" "PM QoS boost: lag_score=$pct → $pm_qos"
+                echo_debug "power-saver" "PM QoS boost: lag_score=$pct → $pm_qos"
                 pct=$pm_qos
             fi
         fi
@@ -537,7 +537,7 @@ run_loop() {
             use_thr_high=$adapt_thr_high
             # Log only when adaptive thresholds change (avoid spam)
             if [ "$adapt_thr_low" != "$last_adapt_thr_low" ] || [ "$adapt_thr_high" != "$last_adapt_thr_high" ]; then
-                echo_debug "profile-saver" "Adaptive thresholds updated: low=$use_thr_low high=$use_thr_high (longterm_avg=$longterm_avg)"
+                echo_debug "power-saver" "Adaptive thresholds updated: low=$use_thr_low high=$use_thr_high (longterm_avg=$longterm_avg)"
                 last_adapt_thr_low=$adapt_thr_low
                 last_adapt_thr_high=$adapt_thr_high
             fi
@@ -616,12 +616,12 @@ run_loop() {
             last_state="$target"
             last_change=$now
             last_profile_score=$avg
-            echo_debug "profile-saver" "state=$target avg=$avg delta=$delta applied profile: $target"
+            echo_debug "power-saver" "state=$target avg=$avg delta=$delta applied profile: $target"
         fi
 
         # Log only when battery capping state changes from false to true (entering capped state)
         if [ "$battery_capped" = true ] && [ "$last_battery_capped" = false ]; then
-            echo_debug "profile-saver" "Battery low ($battery_cap%) - would switch to PRF but capped at BAL"
+            echo_debug "power-saver" "Battery low ($battery_cap%) - would switch to PRF but capped at BAL"
         fi
         last_battery_capped="$battery_capped"
 
@@ -632,7 +632,7 @@ run_loop() {
 # Main program
 
 script_name="$(basename "$0")"
-if [ "$script_name" = "tlp-psd" ] || [ -n "$PROFILE_SAVER_RUN" ]; then
+if [ "$script_name" = "tlp-psd" ]; then
     case "$1" in
         start)
             RUNDIR=/run/tlp
