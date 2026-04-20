@@ -274,7 +274,6 @@ case "$_cmd" in
                 has_power_profile_changed
                 printf "Applying power save settings..."
                 apply_common_settings "$_pp_next"
-                notify_profile_daemon "$(pp2str "$_pp_next")"
                 poweroff_drivebay "$_pp_next" 0
                 [ "$X_TLP_USB_MODE" = "1" ] && set_usb_suspend 0 auto
                 echo "done."
@@ -293,7 +292,6 @@ case "$_cmd" in
                 has_power_profile_changed
                 printf "Applying power save settings..."
                 apply_common_settings "$_pp_next"
-                notify_profile_daemon "$(pp2str "$_pp_next")"
                 poweroff_drivebay "$_pp_next" 0
                 [ "$X_TLP_USB_MODE" = "1" ] && set_usb_suspend 0 auto
                 echo "done."
@@ -339,7 +337,6 @@ case "$_cmd" in
         if lock_tlp_nb; then
             if has_power_profile_changed; then
                 apply_common_settings "$_pp_next"
-                notify_profile_daemon "$(pp2str "$_pp_next")"
                 poweroff_drivebay "$_pp_next" 0
                 set_radio_device_states "$_pp_next"
                 save_runconf
@@ -354,6 +351,14 @@ case "$_cmd" in
                     init_batteries_thresholds
                 fi
             fi
+            # Profile Saver: start or stop based on configuration
+            if [ "${PROFILE_SAVER_ENABLE}" = "1" ]; then
+                # Start profile-saver daemon
+                systemctl start tlp-psd 2>/dev/null || true
+            else
+                # Stop profile-saver daemon
+                systemctl stop tlp-psd 2>/dev/null || true
+            fi            
             unlock_tlp
         fi
         ;;
@@ -364,7 +369,6 @@ case "$_cmd" in
         if lock_tlp; then
             has_power_profile_changed
             apply_common_settings "$_pp_next"
-            notify_profile_daemon "$(pp2str "$_pp_next")"
             poweroff_drivebay "$_pp_next" 0
             set_usb_suspend 0 auto
             # apply charge thresholds if there is no force-discharge in progress
@@ -387,25 +391,19 @@ case "$_cmd" in
         if lock_tlp; then
             has_power_profile_changed
             apply_common_settings "$_pp_next"
-            notify_profile_daemon "$(pp2str "$_pp_next")"
             poweroff_drivebay "$_pp_next" 0
             [ "$X_TLP_USB_MODE" = "1" ] && set_usb_suspend 0 auto
             set_radio_device_states "$_pp_next"
             save_runconf
 
-            # start or stop dynamic SAV daemon based on profile and power state
-            if [ "${SAV_DYNAMIC_ENABLE}" = "1" ] && [ "$_pp_next" = "$PP_SAV" ] && [ "$_syspwr" = "$PS_BAT" ]; then
-                # Kill any existing daemon first
-                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
-                # Start daemon
-                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" start
+            # Profile Saver: start or stop based on configuration
+            if [ "${PROFILE_SAVER_ENABLE}" = "1" ]; then
+                # Start profile-saver daemon
+                systemctl start tlp-psd 2>/dev/null || true
             else
-                # Stop daemon if not in SAV+BAT mode
-                systemctl stop tlp-dyn-saver 2>/dev/null
-                "@TLP_TLIB@/func.d/35-tlp-func-dyn-saver" stop 2>/dev/null
+                # Stop profile-saver daemon
+                systemctl stop tlp-psd 2>/dev/null || true
             fi
-
-            unlock_tlp
 
             echo_started_profile "$_pp_next"
         else
@@ -456,7 +454,6 @@ case "$_cmd" in
 
             has_power_profile_changed
             apply_common_settings "$_pp_next"
-            notify_profile_daemon "$(pp2str "$_pp_next")"
             resume_drivebay "$_pp_next"
             # shellcheck disable=SC2154
             if [ "$RESTORE_THRESHOLDS_ON_BAT" = "1" ] \

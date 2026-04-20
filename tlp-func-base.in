@@ -36,12 +36,6 @@ readonly UDEVADM=udevadm
 readonly UDEVADM_TEST="udevadm test"
 
 readonly TLPRDW=tlp-rdw
-readonly TLPPD=tlp-pd
-
-readonly TLPPD_BUS_NAME="org.freedesktop.UPower.PowerProfiles"
-readonly TLPPD_INTERFACE_NAME="$TLPPD_BUS_NAME"
-readonly TLPPD_OBJECT_PATH="/org/freedesktop/UPower/PowerProfiles"
-readonly PROPERTY_INTERFACE_NAME="org.freedesktop.DBus.Properties"
 
 readonly LOCKFILE=$RUNDIR/lock
 readonly LOCKTIMEOUT=2
@@ -61,7 +55,6 @@ readonly RE_PS_IGNORE='sbs-charger|qcom-battmgr-ac|hidpp_battery|hid-|controller
 readonly DEBUG_TAGS_ALL="arg bat cfg disk lock nm path pm ps rf run sysfs udev usb"
 
 readonly TLP_SERVICE="tlp.service"
-readonly TLPPD_SERVICE="tlp-pd.service"
 readonly PPD_SERVICE="power-profiles-daemon.service"
 readonly RFKILL_SERVICES="systemd-rfkill.service systemd-rfkill.socket"
 
@@ -389,10 +382,6 @@ check_tlp_enabled () {
     fi
 }
 
-check_tlp_pd_installed () {
-    cmd_exists "$TLPPD"
-}
-
 check_systemd () {
     # check if systemd is the active init system (PID 1) and systemctl is installed
     # rc: 0=yes, 1=no
@@ -423,18 +412,6 @@ check_services_activation_status () {
         if ! check_service_state "$TLP_SERVICE" enabled > /dev/null 2>&1; then
             echo_message "Error: TLP's power saving will not apply on boot because $TLP_SERVICE is not enabled "`
                         `"--> Run 'systemctl enable $TLP_SERVICE' to ensure the full functionality of TLP." "err"
-            echo_message ""
-            rc=1
-        fi
-        if check_tlp_pd_installed && ! check_service_state "$TLPPD_SERVICE" enabled > /dev/null 2>&1; then
-            if ! check_service_state "$TLPPD_SERVICE" active; then
-                echo_message "Error: You can't switch TLP profiles by mouse click because $TLPPD_SERVICE is not enabled "`
-                            `"--> Run 'systemctl enable --now $TLPPD_SERVICE' to ensure the full functionality of TLP." "err"
-            else
-                echo_message "Error: After the next restart, you won't be able to switch TLP profiles by mouse click because "`
-                            `"$TLPPD_SERVICE is not enabled --> Run 'systemctl enable $TLPPD_SERVICE' to ensure the "`
-                            `"full functionality of TLP." "err"
-            fi
             echo_message ""
             rc=1
         fi
@@ -1394,28 +1371,6 @@ get_next_power_profile () {
     fi
 
     return "$_pp_next"
-}
-
-notify_profile_daemon () {
-    # Notify tlp-pd of a profile change via D-Bus
-    # $1: profile id
-
-    local autosw
-    case "$TLP_AUTO_SWITCH" in
-        1|2) autosw="true"  ;;
-        *)   autosw="false" ;;
-    esac
-
-    if [ -n "$1" ]; then
-       if cmd_exists "$GDBUS"; then
-           $GDBUS call -y -d $TLPPD_BUS_NAME -o $TLPPD_OBJECT_PATH -m "${TLPPD_INTERFACE_NAME}.SyncProfile" "$1" "$autosw" 2> /dev/null 1>&2
-           echo_debug "run" "notify_profile_daemon.gdbus.call.SyncProfile($1): rc=$?"
-       else
-           echo_debug "run" "notify_profile_daemon($1).gdbus_missing"
-       fi
-    else
-        echo_debug "run" "notify_profile_daemon($1).no_profile"
-    fi
 }
 
 has_power_profile_changed () {

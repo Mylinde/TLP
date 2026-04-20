@@ -26,7 +26,7 @@
         and performance independently for battery and AC operation.
     </p>
     <p>
-        The optional TLP Profiles Daemon (tlp-pd) implements the D-Bus interface,
+
         which lets desktop environments show a TLP profile switch.
         Together with TLP as the backend for applying the customizable profiles,
         it replaces power-profiles-daemon.

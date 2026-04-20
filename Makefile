@@ -87,11 +87,9 @@ SED = sed \
 INFILES = \
 	tlp \
 	tlp.conf \
-	tlpctl \
 	tlp-func-base \
-	tlp-pd \
-	tlp-pd.service \
-	tlp-dyn-saver.service \
+	tlp-psd \
+	tlp-psd.service \
 	tlp-rdw-nm \
 	tlp-rdw.rules \
 	tlp-rdw-udev \
@@ -121,17 +119,11 @@ MANFILES8 = \
 MANFILESRDW8 = \
 	tlp-rdw.8
 
-MANFILESPD1 = \
-	tlpctl.1
 
-MANFILESPD8 = \
-	tlp-pd.8 \
-	tlp-pd.service.8
 
 SHFILES = \
 	tlp.in \
 	tlp-func-base.in \
-	func.d/35-tlp-func-dyn-saver \
 	func.d/* \
 	bat.d/* \
 	tlp-rdw.in \
@@ -153,9 +145,7 @@ PLFILES = \
 	tlp-readconfs.in \
 	tlp-usblist
 
-PYFILES = \
-	tlpctl.in \
-	tlp-pd.in
+PYFILES =
 
 BATDRVFILES = $(foreach drv,$(wildcard bat.d/[0-9][0-9]-[a-z]*),$(drv)~)
 
@@ -175,6 +165,7 @@ clean:
 install-tlp: all
 	# Package tlp
 	install -D -m 755 tlp $(_SBIN)/tlp
+	install -D -m 755 tlp-psd $(_TLIB)/tlp-psd
 	install -D -m 755 tlp-rf $(_BIN)/bluetooth
 	ln -sf bluetooth $(_BIN)/nfc
 	ln -sf bluetooth $(_BIN)/wifi
@@ -183,10 +174,6 @@ install-tlp: all
 	ln -sf run-on-ac $(_BIN)/run-on-bat
 	install -m 755 tlp-stat $(_BIN)/
 	install -D -m 755 -t $(_TLIB)/func.d func.d/*
-	# Ensure func.d scripts that contain placeholders are processed and
-	# written with substitutions (e.g. @TLP_TLIB@ -> /usr/share/tlp).
-	$(SED) func.d/35-tlp-func-dyn-saver > $(_TLIB)/func.d/35-tlp-func-dyn-saver
-	chmod 755 $(_TLIB)/func.d/35-tlp-func-dyn-saver
 	install -m 755 tlp-func-base $(_TLIB)/
 	install -D -m 755 -t $(_TLIB)/bat.d bat.d/*
 	install -m 755 tlp-pcilist $(_TLIB)/
@@ -206,7 +193,7 @@ ifneq ($(TLP_NO_INIT),1)
 endif
 ifneq ($(TLP_WITH_SYSTEMD),0)
 	install -D -m 644 tlp.service $(_SYSD)/tlp.service
-	install -D -m 644 tlp-dyn-saver.service $(_SYSD)/tlp-dyn-saver.service
+	install -D -m 644 tlp-psd.service $(_SYSD)/tlp-psd.service
 	install -D -m 755 tlp-sleep $(_SDSL)/tlp
 endif
 ifneq ($(TLP_WITH_ELOGIND),0)
@@ -257,26 +244,7 @@ ifneq ($(TLP_NO_FISHCOMP),1)
 	install -D -m 644 completion/fish/tlp-rdw.fish $(_FISHCPL)/tlp-rdw.fish
 endif
 
-install-pd: all
-	# Package tlp-pd
-	install -D -m 755 tlp-pd $(_SBIN)/tlp-pd
-	install -D -m 755 tlpctl $(_BIN)/tlpctl
-	install -D -m 644 tlp-pd.service $(_SYSD)/tlp-pd.service
-	install -D -m 644 tlp-pd.policy $(_POLKIT)/tlp-pd.policy
-	$(foreach BUS_NAME,org.freedesktop.UPower.PowerProfiles net.hadess.PowerProfiles, \
-		install -D -m 644 tlp-pd.dbus.conf $(_DBCONF)/$(BUS_NAME).conf; \
-		sed -e 's|@BUS_NAME@|$(BUS_NAME)|g' -i $(_DBCONF)/$(BUS_NAME).conf; \
-		install -D -m 644 tlp-pd.dbus.service $(_DBSVC)/$(BUS_NAME).service; \
-		sed -e 's|@BUS_NAME@|$(BUS_NAME)|g' -i $(_DBSVC)/$(BUS_NAME).service;)
-ifneq ($(TLP_NO_BASHCOMP),1)
-	install -D -m 644 completion/bash/tlpctl.bash_completion $(_SHCPL)/tlpctl
-endif
-ifneq ($(TLP_NO_ZSHCOMP),1)
-	install -D -m 644 completion/zsh/_tlpctl $(_ZSHCPL)/_tlpctl
-endif
-ifneq ($(TLP_NO_FISHCOMP),1)
-	install -D -m 644 completion/fish/tlpctl.fish $(_FISHCPL)/tlpctl.fish
-endif
+
 
 install-man-tlp:
 	# manpages
@@ -290,20 +258,15 @@ install-man-rdw:
 	install -d -m 755 $(_MAN)/man8
 	cd man-rdw && install -m 644 $(MANFILESRDW8) $(_MAN)/man8/
 
-install-man-pd:
-	# manpages
-	install -d -m 755 $(_MAN)/man1
-	cd man-pd && install -m 644 $(MANFILESPD1) $(_MAN)/man1/
-	install -d -m 755 $(_MAN)/man8
-	cd man-pd && install -m 644 $(MANFILESPD8) $(_MAN)/man8/
 
-install: install-tlp install-rdw install-pd
+install: install-tlp install-rdw
 
-install-man: install-man-tlp install-man-rdw install-man-pd
+install-man: install-man-tlp install-man-rdw
 
 uninstall-tlp:
 	# Package tlp
 	rm $(_SBIN)/tlp
+	rm $(_TLIB)/tlp-psd
 	rm $(_BIN)/bluetooth
 	rm $(_BIN)/nfc
 	rm $(_BIN)/wifi
@@ -318,7 +281,7 @@ uninstall-tlp:
 	rm $(_ULIB)/rules.d/85-tlp.rules
 	rm -f $(_SYSV)/tlp
 	rm -f $(_SYSD)/tlp.service
-	rm -f $(_SYSD)/tlp-dyn-saver.service
+	rm -f $(_SYSD)/tlp-psd.service
 	rm -f $(_SDSL)/tlp-sleep
 	rm -f $(_ELOD)/49-tlp-sleep
 	rm -f $(_SHCPL)/tlp
@@ -354,18 +317,6 @@ uninstall-rdw:
 	rm -f $(_ZSHCPL)/_tlp-rdw
 	rm -f $(_FISHCPL)/tlp-rdw.fish
 
-uninstall-pd:
-	rm $(_SBIN)/tlp-pd
-	rm $(_BIN)/tlpctl
-	rm -f $(_SYSD)/tlp-pd.service
-	rm -f $(_POLKIT)/tlp-pd.policy
-	rm -f $(_DBCONF)/org.freedesktop.UPower.PowerProfiles.conf
-	rm -f $(_DBSVC)/org.freedesktop.UPower.PowerProfiles.service
-	rm -f $(_DBCONF)/net.hadess.PowerProfiles.conf
-	rm -f $(_DBSVC)/net.hadess.PowerProfiles.service
-	rm -f $(_SHCPL)/tlpctl
-	rm -f $(_ZSHCPL)/_tlpctl
-	rm -f  $(_FISHCPL)/tlpctl.fish
 
 uninstall-man-tlp:
 	# manpages
@@ -376,14 +327,10 @@ uninstall-man-rdw:
 	# manpages
 	cd $(_MAN)/man8 && rm -f $(MANFILESRDW8)
 
-uninstall-man-pd:
-	# manpages
-	cd $(_MAN)/man1 && rm -f $(MANFILESPD1)
-	cd $(_MAN)/man8 && rm -f $(MANFILESPD8)
 
-uninstall: uninstall-tlp uninstall-rdw uninstall-pd
+uninstall: uninstall-tlp uninstall-rdw
 
-uninstall-man: uninstall-man-tlp uninstall-man-rdw uninstall-man-pd
+uninstall-man: uninstall-man-tlp uninstall-man-rdw
 
 checkall: checkbatdrv checkbashisms shellcheck perlcritic checkdupconst checkman checkconf checkwip
 
@@ -405,7 +352,7 @@ checkdupconst:
 
 checkman:
 	@echo "*** checkman ********************************************************************************"
-	@grep '.TH ' man/* man-pd/* man-rdw/*
+	@grep '.TH ' man/* man-rdw/*
 
 checkconf:
 	@echo "*** checkconf *******************************************************************************"

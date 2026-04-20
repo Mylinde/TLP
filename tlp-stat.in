@@ -55,7 +55,6 @@ show_pcie=0
 show_pev=0
 show_proc=0
 show_psup=0
-show_pddiag=0
 show_rfkill=0
 show_system=0
 show_temp=0
@@ -169,12 +168,6 @@ parse_args () { # parse command-line -- $@: arguments to parse
                 needs_root_priv=1
                 ;;
 
-            "--pd-diag")
-                show_all=0
-                show_pddiag=1
-                : ${needs_root_priv:=0}
-                ;;
-
             "--psup")
                 show_all=0
                 show_psup=1
@@ -222,7 +215,6 @@ parse_args () { # parse command-line -- $@: arguments to parse
                 echo "                  -w | --warn      | -v | --verbose   |" 1>&2
                 echo "                     | --version   |    | --cdiff     |" 1>&2
                 echo "                  -P | --pev       |    | --psup      |" 1>&2
-                echo "                     | --pd-diag   |    |             |" 1>&2
                 echo "                  -T | --trace     |    | --trace-nm  |" 1>&2
                 echo "                       --udev                           ]" 1>&2
                 do_exit 3
@@ -366,31 +358,7 @@ if [ "$show_system" = "1" ] || [ "$show_all" = "1" ] ; then
         fi
     fi
 
-    # --- tlp-pd status
-    if check_tlp_pd_installed; then
-        tlp_pd_state="installed"
-        if check_systemd; then
-            if check_service_state "$TLPPD_SERVICE" enabled; then
-                tlp_pd_state="enabled"
-            else
-                tlp_pd_state="disabled"
-            fi
-            if check_service_state "$TLPPD_SERVICE" active; then
-                tlp_pd_state="${tlp_pd_state}, running"
-            else
-                tlp_pd_state="${tlp_pd_state}, not running"
-            fi
-        else
-            if check_tlp_pd_running; then
-                tlp_pd_state="${tlp_pd_state}, running"
-            else
-                tlp_pd_state="${tlp_pd_state}, not running"
-            fi
-        fi
-        printf "tlp-pd         = %s\n" "$tlp_pd_state"
-    else
-        printf "tlp-pd         = not installed\n"
-    fi
+    # --- actual profile
 
     # --- actual profile
     printf "TLP profile    = %s\n" "$(print_saved_profile)"
@@ -1102,61 +1070,6 @@ if [ "$show_psup" = "1" ]; then
     check_udev_rule_ps
 fi # show_psup
 
-# --- show tlp-pd diagnostic
- if [ "$show_pddiag" = "1" ]; then
-    printf "+++ tlp-pd Diagnostic\n"
-    if [ "$(id -u)" = "0" ];  then
-        echo_message "Notice: Please do not run 'tlp-stat --pd-diag' as root or with sudo"
-    fi
-    print_desktop_session
-    if check_tlp_pd_installed; then
-        echo_message "tlp-pd is installed." "success"
-        if check_systemd; then
-            if check_service_state "$TLPPD_SERVICE" enabled; then
-                echo_message "tlp-pd.service is enabled." "success"
-            else
-                echo_message "tlp-pd.service is disabled." "err"
-            fi
-        fi
-        if check_tlp_pd_running; then
-            echo_message "tlp-pd is running." "success"
-        else
-            echo_message "tlp-pd is not running." "err"
-        fi
-    else
-         echo_message "tlp-pd is not installed." "err"
-    fi
-
-    if cmd_exists "$GDBUS"; then
-        if pd_version="$($GDBUS call -y -d "$TLPPD_BUS_NAME" -o "$TLPPD_OBJECT_PATH" -m "${PROPERTY_INTERFACE_NAME}.Get" \
-            "$TLPPD_INTERFACE_NAME" "Version" 2> /dev/null)"; then
-            pd_version="$(echo "$pd_version" | sed -r "s/.*<'(.+)'>,.*/\1/")"
-            printf "D-Bus Version: %s\n" "$pd_version"
-            if [ "${pd_version#tlp-pd}" = "$pd_version" ]; then
-                msg="Notice: a foreign Power Profile D-Bus service is running:"
-                if check_ppd_running; then
-                    msg="$msg $PPD"
-                elif check_tuned_ppd_running; then
-                    msg="$msg $TUNEDPPD"
-                else
-                    msg="$msg unknown"
-                fi
-                echo_message "$msg"
-
-            else
-                if cmd_exists "$GDBUS"; then
-                    printf "D-Bus Properties:\n"
-                    $GDBUS call -y -d "$TLPPD_BUS_NAME" -o "$TLPPD_OBJECT_PATH" -m  "${PROPERTY_INTERFACE_NAME}.GetAll" \
-                        "$TLPPD_INTERFACE_NAME" 2> /dev/null | \
-                        # Hack: sed script is customized to the GetAll() output instead of doing proper XML rendering
-                        sed -r -e 's/\{/\{ /' -e 's/}, \{/\n },\n \{ /g' -e 's/>,/>,\n  /g' -e 's/<\[\{/<\[\n\ { /' -e 's/>\}\]>/\n \}\]>/'
-                fi
-            fi
-        fi
-    fi
-    printf "\n"
- fi # show_pddiag
-
 # --- show udev diagnostic
 if [ "$show_udev" = "1" ]; then
     printf "+++ udev diagnostic\n"
@@ -1169,9 +1082,9 @@ if [ "$show_trace" = "1" ]; then
     # check for systemd journal
     jdone=0
     if [ "$show_trace_nm" = "1" ]; then
-        log_ids="SYSLOG_IDENTIFIER=tlp SYSLOG_IDENTIFIER=tlp-pd SYSLOG_IDENTIFIER=NetworkManager"
+        log_ids="SYSLOG_IDENTIFIER=tlp SYSLOG_IDENTIFIER=NetworkManager"
     else
-        log_ids="SYSLOG_IDENTIFIER=tlp SYSLOG_IDENTIFIER=tlp-pd"
+        log_ids="SYSLOG_IDENTIFIER=tlp"
     fi
     if cmd_exists $JOURNALCTL; then
         # retrieve trace output from journal, rc=1 if journald has no data available

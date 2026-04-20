@@ -11,7 +11,7 @@ Settings are organized into three customizable profiles *performance* (AC),
 *balanced* (BAT) and *power-saver* (SAV), allowing to adjust between savings
 and performance independently for battery and AC operation.
 
-*Version 1.9* introduces the (optional) TLP profiles daemon (**tlp-pd**), which
+
 enables choosing between the three profiles with a mouse click. Together with TLP
 as the backend it **replaces power-profiles-daemon** by implementing the same
 D-Bus API that major Linux desktop environments like GNOME, KDE and Cinnamon
@@ -24,15 +24,15 @@ For ThinkPads and other supported laptops it provides a unified approach to
 battery charge thresholds.
 
 
-**Dynamic SAV Daemon** *(Difference to upstream TLP)*
+**Profile Saver Daemon** *(Difference to upstream TLP)*
 -------------
-This fork includes an additional optional **tlp-dyn-saver** daemon that
-dynamically adjusts power-saver profile parameters based on system workload.
-It monitors CPU utilization and automatically switches between three power
-levels (low/medium/high) for PLATFORM_PROFILE, CPU_ENERGY_PERF_POLICY, and
-PCIE_ASPM settings. This enables automatic optimization without manual
+This fork includes an additional optional **tlp-psd** daemon that
+automatically switches power profiles based on system workload.
+It monitors CPU utilization and I/O-wait, dynamically switching between
+SAV (power-saver), BAL (balanced), and PRF (performance) profiles while on
+battery power. This enables automatic optimization without manual
 intervention - maximizing battery life during idle periods while maintaining
-responsiveness when needed. The daemon is disabled by default.
+responsiveness when needed. The daemon is enabled by default.
 
 Documentation
 -------------

@@ -8,7 +8,7 @@ Copyright:
 
     See https://github.com/linrunner/TLP/ for additional contributors
 
-    tlpctl is an adaptation of powerprofilesctl, which is
+
     part of power-profiles-daemon, written by
     Bastien Nociera and Mario Limonciello
     Copyright (c) 2020 Red Hat, Inc.
@@ -29,5 +29,5 @@ License:
     This software is licensed under the GPL v2 or later,
     see https://spdx.org/licenses/GPL-2.0-or-later.html
 
-    tlpctl is licensed under the GPL v3,
+
     see https://spdx.org/licenses/GPL-3.0.html

@@ -89,18 +89,15 @@
 #   0=disabled - never switch, use TLP_PROFILE_DEFAULT if configured
 #   1=auto  - always switch, select TLP_PROFILE_AC on AC and TLP_PROFILE_BAT
 #             on battery power.
-#   2=smart - like auto, but skips the switch if you have manually changed the
-#             profile away from the previous power source's default profile
-#             (as defined by TLP_PROFILE_AC/BAT).
 # Note: the same applies if the charger was connected/removed during suspend.
-# Default: 2
+# Default: 1
 
-#TLP_AUTO_SWITCH=2
+#TLP_AUTO_SWITCH=1
 
 # TLP profiles to use when automatic switching is enabled
-# (TLP_AUTO_SWITCH=1 or 2):
+# (TLP_AUTO_SWITCH=1):
 #   PRF=performance, BAL=balanced, SAV=power-saver.
-# Default: PRF (AC power), BAL (battery power)
+# Default: PRF (AC power), SAV (battery power)
 
 #TLP_PROFILE_AC=BAL
 #TLP_PROFILE_BAT=SAV
@@ -257,29 +254,36 @@
 #PLATFORM_PROFILE_ON_BAT=balanced
 #PLATFORM_PROFILE_ON_SAV="low-power cool quiet"
 
-# Dynamic SAV - Workload-dependent adjustments for power-saver profile
-# When enabled, TLP dynamically adjusts the power-saver profile (and related
-# settings) based on current CPU load while running on battery power.
-# This provides better responsiveness under heavy workloads while maximizing
-# battery lifetime during light usage (web browsing, office work, etc).
+# Profile Saver - Workload-dependent switching between SAV, BAT and PRF profiles
+# When enabled, TLP automatically switches between the three profiles based on
+# workload lag detection. This daemon is particularly useful for users who want
+# maximum automation.
+# Default: 1
+#PROFILE_SAVER_ENABLE=1
 # 
-# The daemon monitors CPU utilization and switches between three states:
-#   - low:     lag score ≤ 35  → power-saver profile (quiet/low-power)
-#   - med:     lag score 35-75  → balanced profile
-#   - high:    lag score ≥ 75   → performance profile
+# The daemon monitors CPU utilization and I/O-wait to adapt power profiles:
+#   - Idle (low load):      → power-saver profile (maximum power saving)
+#   - Normal work (med):    → balanced profile (responsive)
+#   - Heavy load (high):    → performance profile (maximum performance)
 #
-# Lag Detection System:
-#   Monitors system load, I/O wait, and scheduler metrics to detect responsiveness
-#   issues (lag). This provides better workload-dependent profile switching than
-#   simple CPU% thresholds, especially for I/O bound workloads.
+# Adaptive Threshold System:
+#   Uses a 1-minute rolling average of workload metrics to automatically calculate
+#   thresholds. This means the daemon adapts to your typical system load pattern
+#   without requiring any configuration.
 #
-# Dynamic SAV settings (all optional, shown with defaults):
-#SAV_DYNAMIC_ENABLE=0                          # 0=off, 1=on
+# Delta-Based Switching:
+#   Only switches profiles when lag score changes by ≥5 points from last switch.
+#   This prevents oscillation while maintaining responsiveness to real load changes.
+#
+# Profile Saver settings (all optional, shown with defaults):
 #SAV_DYNAMIC_INTERVAL=4                        # sampling interval [seconds]
 #SAV_DYNAMIC_SAMPLES=3                         # moving average window size [samples]
-#SAV_DYNAMIC_LAG_THRESHOLDS="35,75"            # low,high lag score thresholds [0-100]
-#SAV_DYNAMIC_HYSTERESIS=8                      # hysteresis to prevent flapping [lag_score points]
-#SAV_DYNAMIC_MIN_DELAY=4                       # minimum delay between profile changes [seconds]
+#SAV_DYNAMIC_HYSTERESIS=5                      # points required to exit state [lag_score]
+#SAV_DYNAMIC_MIN_DELAY=2                       # minimum delay between switches [seconds]
+#SAV_DYNAMIC_ADAPTIVE=1                        # use adaptive thresholds (0=static 25,75)
+#SAV_DYNAMIC_LONGTERM_PERIOD=60                # time window for average [seconds]
+#SAV_DYNAMIC_THRESHOLD_OFFSET=15               # threshold range: avg±offset [lag_score]
+#SAV_DYNAMIC_SWITCH_DELTA=5                    # minimum change to trigger switch [lag_score]
 
 # System suspend mode:
 #   s2idle: Idle standby - a pure software, light-weight, system sleep state,

@@ -99,11 +99,6 @@ please refer to: https://linrunner.de/tlp/developers/packaging.html
       together with TLP_PROFILE_DEFAULT to lock TLP to a fixed profile
     - Reversed the order of TLP's profiles in the desktop UI to match
       power-profiles-daemon's order
-    - Rewrite of tlp-pd to use only GLib and no longer python-dbus
-    - Sandbox tlp-pd.service
-    - tlp-pd property BatteryAware now reflects TLP_AUTO_SWITCH
-      (0=false, 1/2=true) and becomes de facto readonly,
-      i.e. it discards written values
     Processor:
     - tlp-stat -p: section "+++ Platform profile" renamed to "+++ Platform"
     Radio Devices:
@@ -116,34 +111,10 @@ please refer to: https://linrunner.de/tlp/developers/packaging.html
       - tlp discharge/recalibrate: catch reset during initialization,
         refactor process
       - Fix detection of T580 with Libreboot (Issue #862)
-    Power Profiles:
-    - tlpctl: recover --version
-
-+++ 1.9.1 --- 07.01.2026 +++
-
-* Bugfix Release
-  Power Profiles (tlp-pd)
-  - Fix Polkit Authentication Bypass in Profiles Daemon in Version 1.9.0
-    (CVE-2025-67859)
-    - https://security.opensuse.org/2026/01/07/tlp-polkit-authentication-bypass.html
-    - Version 1.8.0 and older are not affected
-    - Ensure that all processes that change the power profile or the daemon's
-      log level are authenticated, either by a desktop user session or as root
-    - Limit the number of stacked profile holds (tlpctl launch) to 16
-    - Make profile hold cookies unpredictable, to prevent unrelated users
-      from releasing an active profile hold
-
-  Battery:
-  - Fix RESTORE_THRESHOLDS_ON_BAT: consider the change to battery power,
-    not the profile. Ensure even after suspension.
 
 +++ 1.9.0 --- 01.12.2025 +++
 
 * Features since 1.9.0-beta.1
-    Power Profiles:
-    - tlp-stat --pd-diag: display active desktop session
-
-* Bugfixes since 1.9.0-beta.1
     Disks:
     - Fix double processing of plugged USB disks
     - tlp-stat -d: fix anonymization of newish NVMe disk ids
@@ -155,32 +126,6 @@ please refer to: https://linrunner.de/tlp/developers/packaging.html
   * Beta Release
 
   * Features
-    Power Profiles:
-    - tlp-pd: TLP Profiles Daemon is a new addition to TLP. It implements
-      the D-Bus interface, which lets desktop environments show a
-      power profile switch. Together with TLP as the backend for applying
-      these profiles, it replaces power-profiles-daemon.
-    - Introduce a third configuration profile for maximum power savings
-      and make tlp-pd possible. The following are now available:
-      - performance: parameters ending in _AC are used when AC power
-        is connected or when the new command 'tlp performance' is run.
-      - balanced: parameters ending in _BAT are used when operating
-        on battery power or when the new command 'tlp balanced' is run.
-      - power-saver: parameters ending in _SAV are used when the new command
-        'tlp power-saver' is run. If there is no _SAV parameter available
-        for a feature, the _BAT parameter will be used instead.
-    - tlpctl: new command to switch between power profiles, launch applications
-      with specific profiles and control tlp-pd.
-      It offers a subset of powerprofilesctl's commands supplemented by
-      TLP-specific shortcuts.
-    - TLP_AUTO_SWITCH: controls the automatic switching of the power profile
-      when the charger is connected or removed (even during a suspend).
-      The Innovation (and new default) is a "smart" mode that can retain a
-      manually selected profile when the power source changes.
-    - Use the TLP_DEFAULT_MODE profile when automatic switching is disabled.
-    - tlp-stat --pd-diag: show tlp-pd diagnostic
-    - tlp: drop the commands 'false' and 'true', which have been superseded
-      by 'ac' and 'bat' for ages
     Battery Care:
     - Tuxedo laptops supported by the clevo_acpi out-of-tree driver from
       tuxedo-drivers: start and stop threshold (Issue #803);
@@ -192,7 +137,6 @@ please refer to: https://linrunner.de/tlp/developers/packaging.html
     - TLP_DISABLE_DEFAULTS: deactivate all intrinsic defaults so that
       only settings that have been explicitly activated are applied;
       helpful to use only selected features
-    - tlp-stat -s: unified representation of tlp/tlp-rdw/tlp-pd's status
     - tlp-stat --trace-nm: show the journal entries for NetworkManager
       correlated with TLP's trace output, supplemented with device details
       for NetworkManager and rfkill

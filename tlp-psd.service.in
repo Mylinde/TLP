@@ -1,0 +1,29 @@
+# TLP Power Saver Daemon
+# Automatically switches between profiles based on workload lag detection
+#
+# Copyright (c) 2026 Mario Herrmann <marioherrmann at posteo.de> and others.
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+[Unit]
+Description=TLP Power Saver Daemon
+After=tlp.service
+PartOf=tlp.service
+
+[Service]
+Type=simple
+ExecStart=@TLP_TLIB@/tlp-psd run
+ExecStop=/bin/sh -c 'kill $(cat /run/tlp/tlp-psd.pid 2>/dev/null) 2>/dev/null || true'
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+StandardOutput=journal
+StandardError=journal
+
+# Lockdown - allow kernel/system access for PM QoS and workload metrics
+NoNewPrivileges=yes
+ProtectHome=yes
+ReadWritePaths=/run/tlp /tmp /proc /sys
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes

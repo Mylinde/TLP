@@ -1,0 +1,666 @@
+#!/bin/sh
+# tlp-func-profile-saver - Workload-dependent profile switching (SAV/BAL/PRF)
+#
+# Automatically switches between SAV, BAL, and PRF profiles based on workload.
+# Uses the same lag detection algorithm and configuration as the dyn-saver.
+#
+# Copyright (c) 2026 Mario Herrmann <marioherrmann at posteo.de> and others.
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Requires: tlp-func-base, tlp-func-cpu
+
+# Helper functions
+
+create_pidfile() {
+    [ -n "$RUNDIR" ] || RUNDIR=/run/tlp
+    mkdir -p "$RUNDIR"
+    echo "$$" > "$RUNDIR/tlp-psd.pid"
+}
+
+remove_pidfile() {
+    rm -f "$RUNDIR/tlp-psd.pid" 2>/dev/null || true
+}
+
+is_running() {
+    [ -f "$RUNDIR/tlp-psd.pid" ] || return 1
+    pid=$(cat "$RUNDIR/tlp-psd.pid")
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+get_lag_score() {
+    # Calculate lag indicator using snapshot caching in temporary file
+    # Returns a "lag score" 0-100 where lag score influences profile switching:
+    #   0-25:  Low lag (idle/light load) → switch to SAV profile
+    #  25-75:  Medium lag (normal work) → stay at BAL profile
+    #  75-100: High lag (heavy load) → switch to PRF profile
+    #
+    # OPTIMIZATION: Uses file-based snapshot cache - 0% measurement overhead!
+    # Reads current /proc/stat and compares with cached previous snapshot
+    
+    local cache_file="/run/tlp/profile_lag_snapshot"
+    mkdir -p /run/tlp 2>/dev/null
+    
+    # Read CURRENT snapshot (instantaneous, no sleep!)
+    set -- $(head -1 /proc/stat)
+    shift  # skip "cpu" label
+    
+    local cpu_total=0 current_idle=$4 current_iowait=$5
+    for val in "$@"; do cpu_total=$((cpu_total + val)); done
+    
+    # Read CACHED previous snapshot (or create if missing)
+    if [ -f "$cache_file" ]; then
+        read last_cpu_time last_idle last_iowait < "$cache_file" 2>/dev/null
+    fi
+    [ -z "$last_cpu_time" ] && last_cpu_time=0
+    [ -z "$last_idle" ] && last_idle=0
+    [ -z "$last_iowait" ] && last_iowait=0
+    
+    # Save current snapshot for next call
+    echo "$cpu_total $current_idle $current_iowait" > "$cache_file" 2>/dev/null
+    
+    # Calculate deltas since last snapshot
+    local cpu_delta=$((cpu_total - last_cpu_time))
+    local idle_delta=$((current_idle - last_idle))
+    local iowait_delta=$((current_iowait - last_iowait))
+    
+    # Handle edge cases (first run or negative deltas from overflow)
+    if [ "$cpu_delta" -le 0 ]; then
+        echo 0
+        return
+    fi
+    
+    # Calculate CPU utilization percentage
+    local busy_delta=$((cpu_delta - idle_delta))
+    local cpu_pct=$((busy_delta * 100 / cpu_delta))
+    
+    # Calculate I/O-Wait percentage (separate metric for blocking)
+    local iowait_pct=$((iowait_delta * 100 / cpu_delta))
+    
+    # Convert metrics to lag_score (0-100)
+    # Base: CPU pct mapping
+    # Bonus: I/O-Wait contribution (indicates blocking, responsive lag)
+    
+    local lag_score=0
+    
+    if [ "$cpu_pct" -lt 40 ]; then
+        lag_score=$((cpu_pct / 2))  # 0-20 points
+    elif [ "$cpu_pct" -lt 70 ]; then
+        lag_score=$((20 + (cpu_pct - 40) * 4 / 3))  # 20-60 points
+    elif [ "$cpu_pct" -lt 95 ]; then
+        lag_score=$((60 + (cpu_pct - 70) * 4 / 3))  # 60-95 points
+    else
+        lag_score=$((95 + (cpu_pct - 95)))  # 95-100 points
+    fi
+    
+    # ADD I/O-Wait contribution (indicates blocking, not just computation)
+    # I/O-Wait > 10% = significant blocking
+    # I/O-Wait > 30% = severe blocking (responsive lag!)
+    if [ "$iowait_pct" -gt 10 ]; then
+        iowait_contribution=$((iowait_pct / 2))  # 5-15% I/O = 2.5-7.5 bonus points
+        lag_score=$((lag_score + iowait_contribution))
+    fi
+    
+    # OPTIONAL: Load Average supplement (detect process queueing)
+    local num_cpus=$(nproc 2>/dev/null || echo 4)
+    if [ "$lag_score" -gt 50 ] && [ -f /proc/loadavg ]; then
+        read load_1min load_5min load_rest < /proc/loadavg 2>/dev/null
+        if [ -n "$load_1min" ]; then
+            load_int="${load_1min%.*}"
+            [ -z "$load_int" ] && load_int=0
+            
+            excess_load=$((load_int - num_cpus))
+            if [ "$excess_load" -gt 0 ]; then
+                load_bonus=$((excess_load * 3))
+                [ "$load_bonus" -gt 15 ] && load_bonus=15
+                lag_score=$((lag_score + load_bonus))
+            fi
+        fi
+    fi
+    
+    # Cap lag_score at 100
+    [ "$lag_score" -gt 100 ] && lag_score=100
+    [ "$lag_score" -lt 0 ] && lag_score=0
+    
+    echo "$lag_score"
+}
+
+get_pm_qos_requirement() {
+    # Read PM QoS constraints from active applications
+    # /dev/cpu_dma_latency is the standard PM QoS interface
+    # Lower latency constraint = higher performance requirement
+    #
+    # Returns lag_score equivalent (0-100) based on minimum CPU DMA latency constraint:
+    #   >100µs = idle states allowed → SAV zone (0-25)
+    #    10-100µs = limited idle → BAL zone (50)
+    #    <10µs = no idle → PRF zone (85)
+    #    -1 = not available (PM QoS not supported/accessible)
+    
+    local pmqos_file="/dev/cpu_dma_latency"
+    
+    if [ ! -f "$pmqos_file" ]; then
+        echo -1
+        return 0
+    fi
+    
+    # Read the constraint value (little-endian 32-bit unsigned int)
+    # od outputs: "   constraint_value"
+    local constraint
+    constraint=$(od -An -tu4 -N4 "$pmqos_file" 2>/dev/null | xargs 2>/dev/null)
+    
+    if [ -z "$constraint" ] || [ "$constraint" = "0" ]; then
+        # No constraint or uninitialized = not in use
+        echo -1
+        return 0
+    fi
+    
+    # Map latency constraint to lag_score
+    # Heuristic: lower latency = higher performance demand
+    if [ "$constraint" -gt 100000 ]; then
+        # >100ms: minimal constraint, allow aggressive power saving
+        echo 15
+    elif [ "$constraint" -gt 10000 ]; then
+        # 10-100ms: moderate constraint, balanced mode adequate
+        echo 50
+    else
+        # <10ms: strict latency requirement, force performance
+        echo 85
+    fi
+}
+
+get_min_battery_profile() {
+    # Read TLP_PROFILE_BAT from configuration and convert to internal profile name
+    # Accepts both TLP profile names (power-saver, balanced, performance)
+    # and internal names (SAV, BAL, PRF)
+    # Returns: SAV, BAL, PRF, or empty if not set or invalid
+    case "$TLP_PROFILE_BAT" in
+        power-saver|SAV)
+            echo "SAV"
+            ;;
+        balanced|BAL)
+            echo "BAL"
+            ;;
+        performance|PRF)
+            echo "PRF"
+            ;;
+        *)
+            # Default: no minimum constraint (allow SAV)
+            echo ""
+            ;;
+    esac
+}
+
+get_battery_capacity() {
+    # Read current battery capacity percentage
+    # Returns: 0-100 (percentage) or -1 if unavailable
+    
+    local bat_dir capacity
+    
+    # Standard capacity file
+    bat_dir=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
+    if [ -n "$bat_dir" ] && [ -f "$bat_dir/capacity" ]; then
+        capacity=$(cat "$bat_dir/capacity" 2>/dev/null)
+        if [ -n "$capacity" ] && [ "$capacity" -ge 0 ] && [ "$capacity" -le 100 ]; then
+            echo "$capacity"
+            return 0
+        fi
+    fi
+    
+    # Unavailable
+    echo -1
+    return 0
+}
+
+set_pm_qos_constraints() {
+    # Set PM QoS resume latency constraints for all CPUs
+    # This enforces our profile decisions at the kernel level
+    # /sys/devices/system/cpu/cpu<N>/power/pm_qos_resume_latency_us
+    #
+    # Parameters:
+    #   $1 = constraint value in microseconds (positive int) or "no_constraint" (-1)
+    #
+    # Profile recommendations:
+    #   PRF:  100µs  (strict latency, no deep idle states)
+    #   BAL: 10000µs (moderate restrictions, allow some idle states)
+    #   SAV:100000µs (minimal restrictions, allow all states)
+    
+    local constraint="$1"
+    local cpu_count=0
+    local success=0
+    local failed=0
+    
+    # Find all CPU power directories
+    for cpu_dir in /sys/devices/system/cpu/cpu*/power/pm_qos_resume_latency_us; do
+        if [ -f "$cpu_dir" ] && [ -w "$cpu_dir" ]; then
+            if [ "$constraint" = "no_constraint" ]; then
+                # -1 clears all constraints
+                echo -1 > "$cpu_dir" 2>/dev/null && success=$((success + 1)) || failed=$((failed + 1))
+            else
+                # Write positive constraint value
+                echo "$constraint" > "$cpu_dir" 2>/dev/null && success=$((success + 1)) || failed=$((failed + 1))
+            fi
+            cpu_count=$((cpu_count + 1))
+        fi
+    done
+    
+    if [ "$cpu_count" -gt 0 ]; then
+        if [ "$failed" -eq 0 ]; then
+            [ "$constraint" = "no_constraint" ] && constraint="-1"
+            echo_debug "profile-saver" "PM QoS constraints: set $constraint µs on $success/$cpu_count CPUs"
+        else
+            echo_debug "profile-saver" "PM QoS constraints: partial failure ($success/$cpu_count CPUs updated, $failed failed)"
+        fi
+    else
+        echo_debug "profile-saver" "PM QoS constraints: no writable sysfs files found (need root)"
+    fi
+}
+
+apply_profile() {
+    local profile="$1"
+    # Map SAV, BAL, PRF internal names to tlp command names
+    # Also set corresponding PM QoS constraints
+    case "$profile" in
+        SAV)
+            tlp_profile="power-saver"
+            pm_qos_constraint=100000  # 100ms: allow aggressive power saving
+            ;;
+        BAL)
+            tlp_profile="balanced"
+            pm_qos_constraint=10000   # 10ms: moderate restrictions
+            ;;
+        PRF)
+            tlp_profile="performance"
+            pm_qos_constraint=100     # 100µs: strict latency, no deep idle
+            ;;
+        *)
+            tlp_profile="$profile"
+            pm_qos_constraint=""
+            ;;
+    esac
+    
+    echo_debug "profile-saver" "Applying profile: $tlp_profile"
+    
+    # Apply TLP profile via tlp command
+    @TLP_SBIN@/tlp "$tlp_profile" >/dev/null 2>&1 || true
+    
+    # Set PM QoS constraints if available
+    if [ -n "$pm_qos_constraint" ]; then
+        set_pm_qos_constraints "$pm_qos_constraint"
+    fi
+}
+
+run_loop() {
+    # Source common functions when executed directly
+    # (skip if already loaded via tlp.in)
+    if ! command -v echo_debug >/dev/null 2>&1; then
+        # Try standard installation paths
+        for tlib in /usr/share/tlp /opt/tlp /usr/local/share/tlp; do
+            if [ -f "$tlib/tlp-func-base" ]; then
+                TLPPATH="$tlib"
+                break
+            fi
+        done
+        
+        if [ -z "$TLPPATH" ]; then
+            echo "Error: Could not find TLP libraries"
+            exit 1
+        fi
+        
+        # Source common functions - tlp-func-base must be sourced first
+        for lib in "$TLPPATH/tlp-func-base" "$TLPPATH/func.d/10-tlp-func-cpu"; do
+            # shellcheck disable=SC1090
+            . "$lib" || { echo "Error: Failed to source $lib"; exit 1; }
+        done
+    fi
+
+    # Load configuration files - always needed for TLP_PROFILE_BAT and other settings
+    # (regardless of whether echo_debug was already available)
+    if [ -z "$TLPPATH" ]; then
+        # Find TLP path if not already set
+        for tlib in /usr/share/tlp /opt/tlp /usr/local/share/tlp; do
+            if [ -f "$tlib/tlp-func-base" ]; then
+                TLPPATH="$tlib"
+                break
+            fi
+        done
+    fi
+    
+    if [ -n "$TLPPATH" ]; then
+        if [ -f "$TLPPATH/defaults.conf" ]; then
+            # shellcheck disable=SC1090
+            . "$TLPPATH/defaults.conf" || echo "Warning: Failed to source defaults.conf"
+        fi
+    fi
+    
+    if [ -f "/etc/tlp.conf" ]; then
+        # shellcheck disable=SC1090
+        . "/etc/tlp.conf" || echo "Warning: Failed to source /etc/tlp.conf"
+    fi
+    
+    # Source all config files in /etc/tlp.d/ directory
+    for conf_file in /etc/tlp.d/*.conf; do
+        if [ -f "$conf_file" ]; then
+            # shellcheck disable=SC1090
+            . "$conf_file" || echo "Warning: Failed to source $conf_file"
+        fi
+    done
+
+    create_pidfile
+    
+    # Setup signal handlers for graceful shutdown
+    shutdown=false
+    trap 'shutdown=true' TERM INT
+    trap 'remove_pidfile' EXIT
+
+    # Check if profile saver is enabled
+    PROFILE_SAVER_ENABLE=${PROFILE_SAVER_ENABLE:-0}
+    if [ "$PROFILE_SAVER_ENABLE" != "1" ]; then
+        echo_debug "profile-saver" "disabled (PROFILE_SAVER_ENABLE=$PROFILE_SAVER_ENABLE)"
+        exit 0
+    fi
+
+    # Configuration: use values from config files or defaults
+    INTERVAL=${SAV_DYNAMIC_INTERVAL:-4}
+    SAMPLES=${SAV_DYNAMIC_SAMPLES:-3}
+    HYST=${SAV_DYNAMIC_HYSTERESIS:-5}
+    MIND=${SAV_DYNAMIC_MIN_DELAY:-2}
+    TLP_PROFILE_BAT=${TLP_PROFILE_BAT:-power-saver}
+    
+    # Adaptive threshold configuration
+    SAV_DYNAMIC_ADAPTIVE=${SAV_DYNAMIC_ADAPTIVE:-1}
+    SAV_DYNAMIC_LONGTERM_PERIOD=${SAV_DYNAMIC_LONGTERM_PERIOD:-60}
+    SAV_DYNAMIC_THRESHOLD_OFFSET=${SAV_DYNAMIC_THRESHOLD_OFFSET:-15}
+    SAV_DYNAMIC_SWITCH_DELTA=${SAV_DYNAMIC_SWITCH_DELTA:-5}
+
+    # Fallback thresholds (used when adaptive thresholds disabled or insufficient data)
+    # Default: 25,75 - standard profile switching points
+    thr_low=25
+    thr_high=75
+
+    last_state="unknown"
+    last_change=0
+    last_ac_check=0
+    cached_ac_status=1
+    sample_buf=""
+    prev_avg=0
+    last_sample_time=$(date +%s)
+    current_interval=$INTERVAL
+    last_battery_capped=false
+    last_profile_score=0
+    
+    # Longterm buffer for adaptive thresholds: stores "timestamp:score" pairs
+    longterm_buf=""
+    last_adaptive_check=0
+    last_adapt_thr_low=0
+    last_adapt_thr_high=0
+    
+    echo_debug "profile-saver" "Starting profile saver daemon"
+
+    while [ "$shutdown" = false ]; do
+        now=$(date +%s)
+        
+        # Check AC status every 2*INTERVAL to reduce I/O (optimization: cache status)
+        if [ $((now - last_ac_check)) -ge $((INTERVAL * 2)) ]; then
+            last_ac_check=$now
+            get_sys_power_supply
+            cached_ac_status=$_syspwr
+        fi
+        
+        # Stop daemon on AC power (PS_AC=0)
+        if [ "$cached_ac_status" = "0" ]; then
+            echo_debug "profile-saver" "switched to AC mode, stopping"
+            exit 0
+        fi
+
+        # sample lag indicator and maintain moving average
+        pct=$(get_lag_score)
+        
+        # Check PM QoS requirement (optional supplement, zero-latency detection)
+        pm_qos=$(get_pm_qos_requirement)
+        
+        # Combine signals: use maximum if PM QoS is available
+        # This ensures we never under-allocate performance when apps demand it
+        if [ "$pm_qos" -ge 0 ]; then
+            if [ "$pm_qos" -gt "$pct" ]; then
+                echo_debug "profile-saver" "PM QoS boost: lag_score=$pct → $pm_qos"
+                pct=$pm_qos
+            fi
+        fi
+        
+        sample_buf="$sample_buf $pct"
+        # keep only last SAMPLES values
+        set -- $sample_buf
+        count=$#
+        if [ $count -gt $SAMPLES ]; then
+            # drop oldest
+            shift_count=$((count - SAMPLES))
+            i=0; newbuf=""
+            for val in "$@"; do
+                i=$((i+1))
+                if [ $i -gt $shift_count ]; then
+                    newbuf="$newbuf $val"
+                fi
+            done
+            sample_buf="$newbuf"
+        fi
+        # compute average
+        sum=0; n=0
+        for v in $sample_buf; do sum=$((sum+v)); n=$((n+1)); done
+        avg=0
+        if [ $n -gt 0 ]; then avg=$((sum / n)); fi
+
+        # Adaptive interval based on load trend
+        # Calculate slope: how fast is load changing?
+        time_delta=$((now - last_sample_time))
+        delta_avg=$((avg - prev_avg))
+        
+        # Default to base interval
+        current_interval=$INTERVAL
+        
+        # If lag is rising sharply, sample more frequently
+        if [ $delta_avg -gt 20 ]; then
+            # Lag jumping up rapidly - sample every 1 second (urgent)
+            current_interval=1
+        elif [ $delta_avg -gt 10 ]; then
+            # Lag rising moderately - sample every 2 seconds
+            current_interval=2
+        elif [ $delta_avg -gt 5 ]; then
+            # Lag rising slightly - sample every 3 seconds
+            current_interval=3
+        elif [ $delta_avg -lt -15 ]; then
+            # Lag dropping sharply - can check slower
+            current_interval=$((INTERVAL + 2))
+        fi
+        
+        # Predictive: if close to high threshold and rising, sample faster
+        threshold_distance=$((thr_high - HYST - avg))
+        if [ $threshold_distance -gt 0 ] && [ $threshold_distance -le 20 ] && [ $delta_avg -gt 0 ]; then
+            # Within 20 points of high lag threshold and rising - urgent sampling
+            current_interval=1
+        fi
+        
+        # Also check low threshold approaching from below
+        low_threshold_distance=$((avg - (thr_low - HYST)))
+        if [ $low_threshold_distance -gt -20 ] && [ $low_threshold_distance -le 0 ] && [ $delta_avg -lt 0 ]; then
+            # Within 20 points below low lag threshold and falling - urgent sampling
+            current_interval=1
+        fi
+        
+        prev_avg=$avg
+        last_sample_time=$now
+
+        # Update longterm buffer for adaptive thresholds (every 10 seconds to avoid overhead)
+        if [ "$SAV_DYNAMIC_ADAPTIVE" = "1" ] && [ $((now - last_adaptive_check)) -ge 10 ]; then
+            last_adaptive_check=$now
+            # Add current score with timestamp to longterm buffer
+            longterm_buf="$longterm_buf $now:$avg"
+            
+            # Remove old entries (older than LONGTERM_PERIOD)
+            cutoff_time=$((now - SAV_DYNAMIC_LONGTERM_PERIOD))
+            new_longterm=""
+            for entry in $longterm_buf; do
+                entry_time=$(echo "$entry" | cut -d: -f1)
+                if [ "$entry_time" -gt "$cutoff_time" ]; then
+                    new_longterm="$new_longterm $entry"
+                fi
+            done
+            longterm_buf="$new_longterm"
+            
+            # Calculate longterm average if we have enough data
+            if [ -n "$longterm_buf" ]; then
+                lt_sum=0
+                lt_count=0
+                for entry in $longterm_buf; do
+                    score=$(echo "$entry" | cut -d: -f2)
+                    lt_sum=$((lt_sum + score))
+                    lt_count=$((lt_count + 1))
+                done
+                
+                if [ $lt_count -gt 0 ]; then
+                    longterm_avg=$((lt_sum / lt_count))
+                    # Calculate adaptive thresholds
+                    adapt_thr_low=$((longterm_avg - SAV_DYNAMIC_THRESHOLD_OFFSET))
+                    adapt_thr_high=$((longterm_avg + SAV_DYNAMIC_THRESHOLD_OFFSET))
+                    # Ensure minimum values to avoid weird behavior
+                    [ $adapt_thr_low -lt 5 ] && adapt_thr_low=5
+                    [ $adapt_thr_high -gt 95 ] && adapt_thr_high=95
+                    [ $adapt_thr_low -ge $adapt_thr_high ] && adapt_thr_low=$((adapt_thr_high - 10))
+                fi
+            fi
+        fi
+
+        # Use adaptive or static thresholds
+        use_thr_low=$thr_low
+        use_thr_high=$thr_high
+        if [ "$SAV_DYNAMIC_ADAPTIVE" = "1" ] && [ -n "${adapt_thr_low:-}" ]; then
+            use_thr_low=$adapt_thr_low
+            use_thr_high=$adapt_thr_high
+            # Log only when adaptive thresholds change (avoid spam)
+            if [ "$adapt_thr_low" != "$last_adapt_thr_low" ] || [ "$adapt_thr_high" != "$last_adapt_thr_high" ]; then
+                echo_debug "profile-saver" "Adaptive thresholds updated: low=$use_thr_low high=$use_thr_high (longterm_avg=$longterm_avg)"
+                last_adapt_thr_low=$adapt_thr_low
+                last_adapt_thr_high=$adapt_thr_high
+            fi
+        fi
+
+        # determine target profile with state-dependent hysteresis
+        # Hysteresis prevents oscillation: once in a state, need stronger trigger to leave
+        # Entry thresholds: use_thr_low and use_thr_high (easy to enter)
+        # Exit thresholds: add/subtract HYST (harder to exit, prevents oscillation)
+        target="BAL"
+        
+        if [ "$last_state" = "SAV" ]; then
+            # In SAV: stay until crossing low_threshold + HYST (prevents bouncing back)
+            if [ "$avg" -lt $((use_thr_low + HYST)) ]; then
+                target="SAV"
+            fi
+        elif [ "$last_state" = "PRF" ]; then
+            # In PRF: stay until crossing high_threshold - HYST (prevents bouncing back)
+            if [ "$avg" -gt $((use_thr_high - HYST)) ]; then
+                target="PRF"
+            fi
+        else
+            # In BAL or unknown: switch to SAV or PRF on threshold crossing
+            if [ "$avg" -lt "$use_thr_low" ]; then
+                target="SAV"
+            elif [ "$avg" -gt "$use_thr_high" ]; then
+                target="PRF"
+            fi
+        fi
+
+        # Battery capacity override: cap at BAL if battery < 20%
+        # Prevents PRF profile when battery is low, but allows SAV and BAL
+        battery_cap=$(get_battery_capacity)
+        battery_capped=false
+        if [ "$battery_cap" -ge 0 ] && [ "$battery_cap" -lt 20 ]; then
+            if [ "$target" = "PRF" ]; then
+                target="BAL"
+                battery_capped=true
+            fi
+        fi
+
+        # Enforce minimum battery profile: respect user's TLP_PROFILE_BAT setting
+        # User can set TLP_PROFILE_BAT=balanced to prevent daemon from lowering profile below BAL
+        min_profile=$(get_min_battery_profile)
+        if [ -n "$min_profile" ] && [ "$min_profile" != "SAV" ]; then
+            # Only enforce if minimum is set and higher than SAV
+            case "$target:$min_profile" in
+                SAV:BAL|SAV:PRF)
+                    # Target SAV but user requires at least BAL
+                    target="$min_profile"
+                    ;;
+                BAL:PRF)
+                    # Target BAL but user requires at least PRF
+                    target="$min_profile"
+                    ;;
+            esac
+        fi
+
+        # Check if profile change should occur with delta-based switching
+        # Calculate absolute delta from last profile score
+        if [ $last_profile_score -eq 0 ]; then
+            # First time: allow any change
+            delta=$SAV_DYNAMIC_SWITCH_DELTA
+        else
+            delta_pos=$((avg - last_profile_score))
+            delta_neg=$((last_profile_score - avg))
+            if [ $delta_pos -gt $delta_neg ]; then
+                delta=$delta_pos
+            else
+                delta=$delta_neg
+            fi
+        fi
+
+        if [ "$target" != "$last_state" ] && [ $((now - last_change)) -ge $MIND ] && [ $delta -ge $SAV_DYNAMIC_SWITCH_DELTA ]; then
+            apply_profile "$target"
+            last_state="$target"
+            last_change=$now
+            last_profile_score=$avg
+            echo_debug "profile-saver" "state=$target avg=$avg delta=$delta applied profile: $target"
+        fi
+
+        # Log only when battery capping state changes from false to true (entering capped state)
+        if [ "$battery_capped" = true ] && [ "$last_battery_capped" = false ]; then
+            echo_debug "profile-saver" "Battery low ($battery_cap%) - would switch to PRF but capped at BAL"
+        fi
+        last_battery_capped="$battery_capped"
+
+        sleep "$current_interval"
+    done
+}
+
+# Main program
+
+script_name="$(basename "$0")"
+if [ "$script_name" = "tlp-psd" ] || [ -n "$PROFILE_SAVER_RUN" ]; then
+    case "$1" in
+        start)
+            RUNDIR=/run/tlp
+            # Start via systemd unit - leverages Restart=on-failure mechanism
+            systemctl start tlp-psd 2>/dev/null
+            ;;
+        stop)
+            RUNDIR=/run/tlp
+            pid=$(cat "$RUNDIR/tlp-psd.pid" 2>/dev/null)
+            if [ -n "$pid" ]; then
+                # Try graceful termination first (SIGTERM)
+                kill -TERM "$pid" 2>/dev/null
+                # Wait for process to exit
+                sleep 1
+                # Force kill if still running
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill -9 "$pid" 2>/dev/null || true
+                fi
+            fi
+            remove_pidfile
+            ;;
+        run)
+            RUNDIR=/run/tlp
+            run_loop
+            ;;
+        *)
+            echo "Usage: $0 {start|stop|run}"
+            exit 2
+            ;;
+    esac
+fi
