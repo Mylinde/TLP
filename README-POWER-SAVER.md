@@ -1,8 +1,8 @@
-# TLP Profile Saver Daemon
+# TLP Power Saver Daemon
 
 ## Overview
 
-The TLP Profile Saver is a lightweight systemd daemon that automatically switches between three power profiles based on system workload. It monitors CPU and I/O activity to determine the current system load and dynamically selects the appropriate profile:
+The TLP Power Saver is a lightweight daemon that automatically switches between the power profiles based on system workload. It monitors CPU and I/O activity to determine the current system load and dynamically selects the appropriate profile:
 
 - **SAV** (power-saver): Aggressive power saving for idle/light workloads
 - **BAL** (balanced): Default balanced mode for normal work
@@ -22,33 +22,7 @@ The daemon runs only on battery power and stops automatically when AC is connect
 | **Integration** | External D-Bus service | Part of TLP core |
 | **Control Program** | `tlpctl` command-line tool | N/A (use `tlp` directly) |
 | **GUI Integration** | D-Bus/systemd interface | Native TLP profiles |
-| **Default** | Disabled (manual install) | **Enabled by default** |
 | **Dependency** | Python 3, GLib | None (pure shell) |
-
-### Migration Path
-
-**For tlp-pd users upgrading to TLP with Profile Saver:**
-
-1. **No action required** - Profile Saver is enabled by default and provides similar functionality
-2. **Optional**: Customize settings in `/etc/tlp.conf` (see Configuration section)
-3. **To disable** if you prefer manual profile switching:
-   ```bash
-   echo "PROFILE_SAVER_ENABLE=0" | sudo tee /etc/tlp.d/profile-saver.conf
-   sudo systemctl restart tlp
-   ```
-4. **tlpctl is no longer available** - Use `tlp` commands instead:
-   ```bash
-   # Old (tlp-pd):     tlpctl performance
-   # New (TLP):        sudo tlp performance
-   ```
-
-### Why the Change
-
-- **Simpler architecture**: No D-Bus, no external daemon management
-- **Zero dependencies**: Pure shell, no Python required
-- **Better integration**: Unified with TLP, not a separate service
-- **Smarter switching**: Adaptive thresholds learn your workload pattern
-- **Faster startup**: No daemon initialization overhead
 
 ## Features
 
@@ -98,9 +72,11 @@ Configuration parameters are read from:
 
 ### Available Parameters
 
+All parameters can be individually adjusted to fine-tune the adaptive behavior and match your specific system requirements and usage patterns.
+
 ```bash
 # Enable/disable the profile saver daemon
-PROFILE_SAVER_ENABLE=0|1
+POWER_SAVER_ENABLE=0|1
 
 # Sampling interval in seconds (default: 4)
 SAV_DYNAMIC_INTERVAL=4
@@ -226,36 +202,6 @@ SAV_DYNAMIC_ADAPTIVE=0              # Fall back to static 25,75 thresholds
 SAV_DYNAMIC_LONGTERM_PERIOD=120     # 2 minutes instead of 1
 ```
 
-## Installation & Activation
-
-### Prerequisites
-
-- TLP
-- systemd (for service management)
-- Root privileges (for PM QoS and profile switching)
-
-### Enable the Daemon
-
-Add to `/etc/tlp.conf` or `/etc/tlp.d/profile-saver.conf`:
-
-```bash
-PROFILE_SAVER_ENABLE=1
-```
-
-### Start the Service
-
-```bash
-sudo systemctl enable tlp-psd.service
-sudo systemctl start tlp-psd.service
-```
-
-### Check Status
-
-```bash
-sudo systemctl status tlp-psd.service
-journalctl -u tlp-psd -f
-```
-
 ## How It Works
 
 ### Profile Selection Algorithm
@@ -307,83 +253,12 @@ The daemon is designed as a lightweight complementary service to TLP:
 - **PM QoS Management**: Sets kernel constraints independently
 - **Battery-Only Operation**: Stops automatically on AC power
 
-## Logs & Debugging
-
-### View Recent Logs
-
-```bash
-journalctl -u tlp-psd -n 50
-```
-
-### Enable Debug Output
-
-Set debug level in TLP configuration:
-
-```bash
-TLP_DEBUG=1
-```
-
-### Example Log Output
-
-```
-Starting profile saver daemon
-Applying profile: SAV
-PM QoS constraints: set 100000 µs on 8/8 CPUs
-state=SAV avg=3 applied profile: SAV
-Adaptive thresholds updated: low=5 high=35 (longterm_avg=20)
-PM QoS boost: lag_score=45 → 85
-state=PRF avg=82 applied profile: PRF
-PM QoS constraints: set 100 µs on 8/8 CPUs
-Adaptive thresholds updated: low=57 high=87 (longterm_avg=72)
-Battery low (18%) - would switch to PRF but capped at BAL
-state=BAL avg=82 applied profile: BAL
-PM QoS constraints: set 10000 µs on 8/8 CPUs
-switched to AC mode, stopping
-```
-
-Key observations:
-- Adaptive thresholds adjust from 5-35 (light workload) to 57-87 (heavy workload)
-- Only logged when threshold values actually change
-- Battery protection activates only when switch to PRF would occur
-
-
 ## Performance Impact
 
 - **CPU Overhead**: < 1% (snapshot-based, no continuous polling)
 - **Memory**: ~2-4 MB resident
 - **Disk I/O**: Minimal (only cached snapshots in `/run/tlp/`)
 - **Latency**: No impact (operates asynchronously)
-
-## Troubleshooting
-
-### Daemon Not Starting
-
-```bash
-# Check if enabled
-grep PROFILE_SAVER_ENABLE /etc/tlp.conf
-
-# Check service logs
-journalctl -u tlp-psd -xe
-```
-
-### Profile Not Changing
-
-```bash
-# Verify TLP command works manually
-sudo /usr/sbin/tlp performance
-sudo /usr/sbin/tlp balanced
-sudo /usr/sbin/tlp power-saver
-
-# Check PM QoS constraints
-cat /sys/devices/system/cpu/cpu0/power/pm_qos_resume_latency_us
-```
-
-### High CPU Usage
-
-```bash
-# Reduce sampling interval in configuration
-SAV_DYNAMIC_INTERVAL=8  # increase from 4 to 8 seconds
-```
 
 ## Battery Capacity Protection
 
@@ -407,26 +282,44 @@ This flexible approach:
 
 This is a smart compromise: preserve critical remaining battery while maintaining usability.
 
-## Limitations
+## Debugging
 
-- Works only on battery power (stops on AC)
-- Requires TLP
-- PM QoS constraints require root privileges
-- Battery capacity detection requires kernel support (most modern laptops have this)
-- CPU hotplug and deeper isolation features not included (by design - keep it simple)
+### Enable Debug Output
 
-## Future Enhancements
+Set debug in TLP configuration:
 
-Possible additions (if needed):
+```bash
+TLP_DEBUG="power-saver"
+```
 
-- Thermal monitoring integration
-- GPU load detection
-- Thermal throttling coordination
+### View Logs
+
+```bash
+journalctl -u tlp-psd -n 50
+```
+or
+```bash
+tlp-stat -T
+```
+
+### Example Log Output
+
+```
+Starting profile saver daemon
+Applying profile: SAV
+PM QoS constraints: set 100000 µs on 8/8 CPUs
+state=SAV avg=3 applied profile: SAV
+Adaptive thresholds updated: low=5 high=35 (longterm_avg=20)
+PM QoS boost: lag_score=45 → 85
+state=PRF avg=82 applied profile: PRF
+PM QoS constraints: set 100 µs on 8/8 CPUs
+Adaptive thresholds updated: low=57 high=87 (longterm_avg=72)
+Battery low (18%) - would switch to PRF but capped at BAL
+state=BAL avg=82 applied profile: BAL
+PM QoS constraints: set 10000 µs on 8/8 CPUs
+switched to AC mode, stopping
+```
 
 ## License
 
 GPL-2.0-or-later (same as TLP)
-
-## Author
-
-Mario Herrmann and contributors

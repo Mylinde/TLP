@@ -353,9 +353,9 @@ run_loop() {
     trap 'remove_pidfile' EXIT
 
     # Check if profile saver is enabled
-    PROFILE_SAVER_ENABLE=${PROFILE_SAVER_ENABLE:-0}
-    if [ "$PROFILE_SAVER_ENABLE" != "1" ]; then
-        echo_debug "profile-saver" "disabled (PROFILE_SAVER_ENABLE=$PROFILE_SAVER_ENABLE)"
+    POWER_SAVER_ENABLE=${POWER_SAVER_ENABLE:-0}
+    if [ "$POWER_SAVER_ENABLE" != "1" ]; then
+        echo_debug "profile-saver" "disabled (POWER_SAVER_ENABLE=$POWER_SAVER_ENABLE)"
         exit 0
     fi
 

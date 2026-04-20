@@ -259,7 +259,7 @@
 # workload lag detection. This daemon is particularly useful for users who want
 # maximum automation.
 # Default: 1
-#PROFILE_SAVER_ENABLE=1
+#POWER_SAVER_ENABLE=1
 # 
 # The daemon monitors CPU utilization and I/O-wait to adapt power profiles:
 #   - Idle (low load):      → power-saver profile (maximum power saving)

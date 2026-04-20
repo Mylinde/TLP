@@ -352,7 +352,7 @@ case "$_cmd" in
                 fi
             fi
             # Profile Saver: start or stop based on configuration
-            if [ "${PROFILE_SAVER_ENABLE}" = "1" ]; then
+            if [ "${POWER_SAVER_ENABLE}" = "1" ]; then
                 # Start profile-saver daemon
                 systemctl start tlp-psd 2>/dev/null || true
             else
@@ -397,7 +397,7 @@ case "$_cmd" in
             save_runconf
 
             # Profile Saver: start or stop based on configuration
-            if [ "${PROFILE_SAVER_ENABLE}" = "1" ]; then
+            if [ "${POWER_SAVER_ENABLE}" = "1" ]; then
                 # Start profile-saver daemon
                 systemctl start tlp-psd 2>/dev/null || true
             else
