@@ -1,3 +1,23 @@
+easyTLP - TLP with a Power Saver Daemon
+=====================================
+
+**Power Saver Daemon** *(Difference to upstream TLP)*
+-------------
+This fork includes **tlp-psd** daemon that automatically switches power profiles based on system workload.
+It monitors CPU utilization and I/O-wait, dynamically switching between
+SAV (power-saver), BAL (balanced), and PRF (performance) profiles while on
+battery power. This enables automatic optimization without manual
+intervention - maximizing battery life during idle periods while maintaining
+responsiveness when needed. The daemon is enabled by default.
+
+Since **tlp-psd** operates completely autonomously, the **tlp-pd** daemon
+and **tlpctl** have been removed as manual profile switching is no longer
+necessary.
+
+For detailed information about the Power Saver Daemon, see `README-POWER-SAVER.md <README-POWER-SAVER.md>`_.
+
+**tlp-psd** is not part of the upstream TLP project and is only available in this fork. Bug reports and contributions related to **tlp-psd** should be directed to this repository.
+
 TLP - Optimize Linux Laptop Battery Life
 ========================================
 TLP is a feature-rich utility for Linux, saving laptop battery power
@@ -21,24 +41,6 @@ devices on boot and when connecting/removing the LAN cable.
 
 For ThinkPads and other supported laptops it provides a unified approach to
 battery charge thresholds.
-
-
-**Power Saver Daemon** *(Difference to upstream TLP)*
--------------
-This fork includes **tlp-psd** daemon that automatically switches power profiles based on system workload.
-It monitors CPU utilization and I/O-wait, dynamically switching between
-SAV (power-saver), BAL (balanced), and PRF (performance) profiles while on
-battery power. This enables automatic optimization without manual
-intervention - maximizing battery life during idle periods while maintaining
-responsiveness when needed. The daemon is enabled by default.
-
-Since **tlp-psd** operates completely autonomously, the **tlp-pd** daemon
-and **tlpctl** have been removed as manual profile switching is no longer
-necessary.
-
-For detailed information about the Power Saver Daemon, see `README-POWER-SAVER.md <README-POWER-SAVER.md>`_.
-
-**tlp-psd** is not part of the upstream TLP project and is only available in this fork. Bug reports and contributions related to **tlp-psd** should be directed to this repository.
 
 Documentation
 -------------
