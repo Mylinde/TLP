@@ -3,12 +3,12 @@ easyTLP - TLP with a Power Saver Daemon
 
 **Power Saver Daemon** *(Difference to upstream TLP)*
 -------------
-This fork includes **tlp-psd** daemon that automatically switches power profiles based on system workload.
-It monitors CPU utilization and I/O-wait, dynamically switching between
-SAV (power-saver), BAL (balanced), and PRF (performance) profiles while on
-battery power. This enables automatic optimization without manual
-intervention - maximizing battery life during idle periods while maintaining
-responsiveness when needed. The daemon is enabled by default.
+This fork includes the **tlp-psd** daemon, which automatically switches between power profiles depending on system load.
+It monitors CPU utilization and I/O latency and dynamically switches between the
+SAV (power-saving mode), BAL (balanced), and PRF (performance) profiles as long as the device is
+running on battery power. This enables automatic optimization without manual
+intervention—battery life is maximized during idle periods, while
+responsiveness is maintained when needed. The daemon is enabled by default.
 
 Since **tlp-psd** operates completely autonomously, the **tlp-pd** daemon
 and **tlpctl** have been removed as manual profile switching is no longer
