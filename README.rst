@@ -1,4 +1,4 @@
-easyTLP - TLP with a Power Saver Daemon
+easyTLP - TLP with Power Saver Daemon
 =====================================
 
 **Power Saver Daemon** *(Difference to upstream TLP)*
