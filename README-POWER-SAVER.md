@@ -12,16 +12,16 @@ The daemon runs only on battery power and stops automatically when AC is connect
 
 ## Breaking Changes & Migration from tlp-pd
 
-**easyTLP Profile Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into TLP core:
+**easyTLP Power Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into TLP core:
 
 ### What Changed
 
-| Aspect | tlp-pd (Legacy) | Profile Saver (New) |
+| Aspect | tlp-pd (Legacy) | tlp-psd (New) |
 |--------|---------|---------|
 | **Language** | Python | Shell Script |
 | **Integration** | External D-Bus service | Part of easyTLP core |
 | **Control Program** | `tlpctl` command-line tool | N/A (use `tlp` directly) |
-| **GUI Integration** | D-Bus/systemd interface | Native easyTLP profiles |
+| **GUI Integration** | D-Bus/systemd interface | Native TLP profiles |
 | **Dependency** | Python 3, GLib | None (pure shell) |
 
 ## Features
@@ -305,7 +305,7 @@ tlp-stat -T
 ### Example Log Output
 
 ```
-Starting profile saver daemon
+Starting power saver daemon
 Applying profile: SAV
 PM QoS constraints: set 100000 µs on 8/8 CPUs
 state=SAV avg=3 applied profile: SAV
