@@ -12,7 +12,7 @@ The daemon runs only on battery power and stops automatically when AC is connect
 
 ## Breaking Changes & Migration from tlp-pd
 
-**easyTLP Profile Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into easyTLP core:
+**easyTLP Profile Saver replaces the legacy Python-based tlp-pd daemon** with a lightweight shell-based implementation integrated into TLP core:
 
 ### What Changed
 
